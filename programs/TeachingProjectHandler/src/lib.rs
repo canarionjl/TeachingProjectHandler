@@ -12,56 +12,74 @@ pub mod teaching_project_handler {
 
     use super::*;
 
-    pub fn create_high_rank(ctx: Context<CreateHighRank>, user_type_code:String, id: i64) -> Result<bool> {
+    pub fn create_high_rank(ctx: Context<CreateHighRank>, user_type_code:String) -> Result<bool> {
+        
         let high_rank_account = &mut *ctx.accounts.high_rank_account;
-        high_rank_account.id = id;
+        high_rank_account.id = general_id_generator(&mut ctx.accounts.high_rank_id_handler);
         high_rank_account.identifier_code_hash = digest(user_type_code);
         high_rank_account.authority = *ctx.accounts.authority.key;
 
         Ok(true)
     }
 
-    pub fn create_professor(ctx: Context<CreateProfessor>, user_type_code:String, id: i64) -> Result<bool> {
+    pub fn create_professor(ctx: Context<CreateProfessor>, user_type_code:String) -> Result<bool> {
+
         let professor_account = &mut *ctx.accounts.professor_account;
-        professor_account.id = id;
+        professor_account.id = general_id_generator(&mut ctx.accounts.professor_id_handler);
         professor_account.identifier_code_hash = digest(user_type_code);
         professor_account.authority = *ctx.accounts.authority.key;
+
         Ok(true)
     }
 
-    pub fn create_student(ctx: Context<CreateStudent>, user_type_code:String, id: i64) -> Result<bool> {
+    pub fn create_student(ctx: Context<CreateStudent>, user_type_code:String) -> Result<bool> {
         let student_account = &mut *ctx.accounts.student_account;
-        student_account.id = id;
+        student_account.id = general_id_generator(&mut ctx.accounts.student_id_handler);
         student_account.identifier_code_hash = digest(user_type_code);
         student_account.authority = *ctx.accounts.authority.key;
         Ok(true)
     }
 
-    pub fn create_faculty (ctx: Context<CreateFaculty>, id: i64, name:String) -> Result<bool> {
+    pub fn create_faculty (ctx: Context<CreateFaculty>, name:String) -> Result<bool> {
+
         let faculty_account = &mut *ctx.accounts.faculty_account;
-        faculty_account.id = id;
+        faculty_account.id = general_id_generator(&mut ctx.accounts.faculty_id_handler);
         faculty_account.name = name;
         Ok(true)
     }
 
-
+    
 
 }
 
+fn general_id_generator (id_handler_account: &mut Account<IdHandler>) ->  i64 {
+    let id: i64 = id_handler_account.smaller_id_available;
+    id_handler_account.smaller_id_available = id_handler_account.smaller_id_available + 1;
+    return id;
+}
+
 #[derive(Accounts)]
-#[instruction (user_type_code: String, id:i64)]
+#[instruction (user_type_code: String)]
 pub struct CreateHighRank<'info> {
 
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    #[account(init_if_needed, 
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = size_of::<IdHandler>() + 140,
+        seeds = [b"highRankIdHandler"],
+        bump
+    )]
+    pub high_rank_id_handler: Account<'info,IdHandler>,
+
+    #[account(init, 
         payer=authority, 
         space = size_of::<HighRank>() + 12 + 100, 
         seeds=[b"highRank", authority.key().as_ref()],
         bump,
-        constraint = digest(user_type_code) == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
-        constraint = id >= 0)
+        constraint = digest(user_type_code) == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c")
     ]
     pub high_rank_account: Account<'info, HighRank>,
 
@@ -75,7 +93,16 @@ pub struct CreateProfessor<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    #[account(init_if_needed, 
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = size_of::<IdHandler>() + 140,
+        seeds = [b"professorIdHandler"],
+        bump
+    )]
+    pub professor_id_handler: Account<'info,IdHandler>,
+
+    #[account(init, 
         payer=authority, 
         space = size_of::<Professor>() + 12 + 60 + 100 + 100, 
         seeds=[b"professor", authority.key().as_ref()],
@@ -88,19 +115,28 @@ pub struct CreateProfessor<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction (user_type_code: String, id:i64)]
+#[instruction (user_type_code: String)]
 pub struct CreateStudent<'info> {
 
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    #[account(init_if_needed, 
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = size_of::<IdHandler>() + 140,
+        seeds = [b"studentIdHandler"],
+        bump
+    )]
+    pub student_id_handler: Account<'info,IdHandler>,
+
+
+    #[account(init, 
         payer=authority, 
         space = size_of::<Student>() + 12 + 100 + 100, 
         seeds=[b"student", authority.key().as_ref()],
         bump,
-        constraint = digest(user_type_code) == "318aee3fed8c9d040d35a7fc1fa776fb31303833aa2de885354ddf3d44d8fb69",
-        constraint = id >= 0)
+        constraint = digest(user_type_code) == "318aee3fed8c9d040d35a7fc1fa776fb31303833aa2de885354ddf3d44d8fb69")
     ]
     pub student_account: Account<'info, Student>,
 
@@ -108,19 +144,28 @@ pub struct CreateStudent<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction (new_id: i64, name: String)]
+#[instruction (name: String)]
 pub struct CreateFaculty<'info> {
 
     #[account(mut)]
     pub authority: Signer<'info>,
 
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = size_of::<IdHandler>() + 140,
+        seeds = [b"facultyIdHandler"],
+        bump
+    )]
+    pub faculty_id_handler: Account<'info,IdHandler>,
+
     #[account(mut, has_one = authority)]      //Se comprueba que la cuenta de "Alto cargo" pasada pertenece a quien firma la transacción (autenticación)
     pub high_rank: Account<'info, HighRank>,
 
-    #[account(init_if_needed, 
+    #[account(init, 
         payer=authority, 
         space = size_of::<Faculty>() + name.as_bytes().len() - 20, 
-        seeds=[b"faculty", new_id.to_le_bytes().as_ref()], 
+        seeds=[b"faculty", faculty_id_handler.smaller_id_available.to_le_bytes().as_ref()], 
         bump,
         constraint = digest(high_rank.identifier_code_hash.clone()) == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
         constraint = name.len() <= 200
@@ -129,12 +174,6 @@ pub struct CreateFaculty<'info> {
 
     pub system_program: Program<'info,System>
 }
-
-
-
-
-
-
 
 
 #[derive(Accounts)]
@@ -166,12 +205,19 @@ pub struct CreateSubject<'info> {
 //  ----Users ----  //
 
 #[account]
-#[derive(Default, Debug)]
-    pub struct HighRank {
+#[derive(Default)]
+pub struct HighRank {
     id: i64,                                // 8 bytes
     identifier_code_hash: String,           // Tamaño real: 32 bytes + 4 (alineación) = 36 bytes || Tamaño por defecto: 24 (20 + 4 alineación) --> dif = + 12 bytes
     authority: Pubkey,                      // 32 bytes
     pendent_professor_proposals: Vec<i64>   // Suponiendo 15 propuestas: 15*8 bytes (120 bytes + 4 alineación) || Tamaño por defecto: 24 (20 + 4 alineación) --> dif = + 100 bytes
+}
+
+#[account]
+#[derive(Default)]
+pub struct IdHandler {
+    smaller_id_available: i64,
+    reused_id: Vec<i64>                     // Suponiendo 20 id's: 20*8 bytes (160 bytes + 4 alineación) || Tamaño por defecto: 24 (20 + 4 alineación) --> dif = + 140 bytes
 }
 
 #[account]
@@ -268,6 +314,7 @@ pub struct HighRankProposal {
 id: i64,
 professor_proposal_id: i64
 }
+
 
 
 
