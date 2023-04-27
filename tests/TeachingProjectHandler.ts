@@ -7,6 +7,7 @@ import chaiAsPromised from "chai-as-promised";
 import * as CryptoJS from 'crypto-js';
 import { utf8 } from "@project-serum/anchor/dist/cjs/utils/bytes";
 
+
 chai.use(chaiAsPromised);
 
 // helper functions
@@ -137,12 +138,14 @@ const initializeDegree = async (program: Program<TeachingProjectHandler>, author
   const pda = await findPDAforDegree(program.programId, id)
   const high_rank_pda = await findPDAforHighRank(program.programId, authority.publicKey)
   const id_generator_pda = await findPDAforIdGenerator(program.programId, "degree")
+  const faculty_id_generator_pda = await findPDAforIdGenerator(program.programId, "faculty")
 
 
   const result = await program.methods.createDegree(name, faculty_id)
     .accounts({
       authority: authority.publicKey,
       degreeIdHandler: id_generator_pda,
+      facultyIdHandler: faculty_id_generator_pda,
       highRank: high_rank_pda,
       degreeAccount: pda,
       systemProgram: anchor.web3.SystemProgram.programId,
@@ -158,12 +161,14 @@ const initializeSpecialty = async (program: Program<TeachingProjectHandler>, aut
   const pda = await findPDAforSpecialty(program.programId, id)
   const high_rank_pda = await findPDAforHighRank(program.programId, authority.publicKey)
   const id_generator_pda = await findPDAforIdGenerator(program.programId, "specialty")
-
+  const degree_id_generator_pda = await findPDAforIdGenerator(program.programId, "degree")
+  
 
   const result = await program.methods.createSpecialty(name, degree_id)
     .accounts({
       authority: authority.publicKey,
       specialtyIdHandler: id_generator_pda,
+      degreeIdHandler: degree_id_generator_pda,
       highRank: high_rank_pda,
       specialtyAccount: pda,
       systemProgram: anchor.web3.SystemProgram.programId,
@@ -174,6 +179,30 @@ const initializeSpecialty = async (program: Program<TeachingProjectHandler>, aut
   return result;
 }
 
+const initializeSubject = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, id: number, name: string, degree_id: number, specialty_id: number, course: any, professors: Array<number>): Promise<String> => {
+
+  const pda = await findPDAforSubject(program.programId, id)
+  const high_rank_pda = await findPDAforHighRank(program.programId, authority.publicKey)
+  const id_generator_pda = await findPDAforIdGenerator(program.programId, "subject")
+  const degree_id_generator_pda = await findPDAforIdGenerator (program.programId, "degree")
+  const specialty_id_generator_pda = await findPDAforIdGenerator (program.programId, "specialty")
+
+
+  const result = await program.methods.createSubject(name, degree_id, specialty_id, course , professors)
+    .accounts({
+      authority: authority.publicKey,
+      subjectIdHandler: id_generator_pda,
+      degreeIdHandler: degree_id_generator_pda,
+      specialtyIdHandler: specialty_id_generator_pda,
+      highRank: high_rank_pda,
+      subjectAccount: pda,
+      systemProgram: anchor.web3.SystemProgram.programId,
+    })
+    .signers([authority])
+    .rpc();
+
+  return result;
+}
 const getAllAccountsByAuthority = async (accounts: anchor.AccountClient<TeachingProjectHandler>, authority: anchor.web3.PublicKey) => {
   return await accounts.all([
     {
@@ -243,7 +272,15 @@ const findPDAforSpecialty = async (programId: anchor.web3.PublicKey, id: Number)
   );
   return pda;
 }
-//
+
+const findPDAforSubject = async (programId: anchor.web3.PublicKey, id: Number): Promise<anchor.web3.PublicKey> => {
+  const [pda, _bump] = anchor.web3.PublicKey.findProgramAddressSync(
+    [utf8.encode("subject"), numberToLEBytes(id)],
+    programId
+  );
+  return pda;
+}
+
 const fetchHighRankAccount = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.PublicKey) => {
   return await program.account.highRank.fetch(await findPDAforHighRank(program.programId, authority))
 }
@@ -262,6 +299,10 @@ const fetchDegreeAccount = async (program: Program<TeachingProjectHandler>, id: 
 
 const fetchSpecialtyAccount = async (program: Program<TeachingProjectHandler>, id: Number) => {
   return await program.account.specialty.fetch(await findPDAforSpecialty(program.programId, id))
+}
+
+const fetchSubjectAccount = async (program: Program<TeachingProjectHandler>, id: Number) => {
+  return await program.account.subject.fetch(await findPDAforSubject(program.programId, id))
 }
 
 const fetchStudentAccount = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.PublicKey) => {
@@ -529,7 +570,40 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
 
   });
 
+  it("Subject is properly initializated", async () => {
 
+    getExtraFunds(connection, 50, wallet1) //wallet1 is allowed by a HighRank
+    var correct = true;
+    var idExpected = 0;
+
+    try {
+      const account = await fetchIdAccount(program, "subject");
+      idExpected = account.smallerIdAvailable
+    } catch (err) {
+      assert.instanceOf(err, Error);
+      assert.include(err.toString(), "Account does not exist");
+      correct = false;
+    }
+
+    if (!correct) {
+      await initializeIdGenerator(program, wallet1, "subject")
+    }
+
+    const signature = await initializeSubject(program, wallet1, idExpected, "Especialidad de prueba", 0, 0, { first:{} }, [1,2,3])
+    await connection.confirmTransaction(signature.toString())
+    const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
+    const [key, data, buffer] = getReturnLog(transaction);
+    const accountWallet = await fetchSubjectAccount(program, idExpected);
+    const idGeneratorAccount = await fetchIdAccount(program, "subject");
+
+    console.log(accountWallet)
+
+    expect(new anchor.BN(accountWallet.id).eq(new anchor.BN(idExpected))).to.be.true;
+    expect(new anchor.BN(idGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected + 1))).to.be.true;
+    expect(new anchor.BN(accountWallet.degreeId).eq(new anchor.BN(0))).to.be.true;
+    expect(accountWallet.course).to.deep.equal( {first: {} } );                                                  // utilizamos deep para comparar el contenido real de los objetos y no la referencia a memoria (esto últ siempre daría false ya que son dos objetos diferentes)
+    expect(Boolean(buffer)).to.be.true;
+  });
 
 
 });

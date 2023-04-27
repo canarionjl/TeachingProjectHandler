@@ -66,6 +66,23 @@ pub mod teaching_project_handler {
         Ok(true)
     }
 
+    pub fn create_subject(ctx: Context<CreateSubject>, name:String, degree_id: i32, specialty_id: i32, course: SubjectCourse, professors: Vec<i32>) -> Result<bool> {
+
+        let subject_account = &mut *ctx.accounts.subject_account;
+        subject_account.id = general_id_generator(&mut ctx.accounts.subject_id_handler);
+        subject_account.name = name;
+        subject_account.degree_id = degree_id;
+        subject_account.specialty_id = specialty_id;
+        subject_account.course = course;
+
+        let professor_id_handler = &mut *ctx.accounts.professor_id_handler;
+
+        for professor in &professors {
+            if professor.id > professor_id_generator_account
+        }    
+        Ok(true)
+    }
+
     pub fn create_id_generator_for(ctx: Context<CreateIdHandler>, _specification: String) -> Result<bool> {
         let id_generator_account = &mut *ctx.accounts.specification_id_handler;
         id_generator_account.smaller_id_available = 0;
@@ -86,6 +103,12 @@ fn general_id_generator (id_handler_account: &mut Account<IdHandler>) ->  i32 {
     id_handler_account.smaller_id_available = id_handler_account.smaller_id_available + 1;
     return id;
 }
+
+// fn subjectCourseIsValid (course: SubjectCourse) {
+//     match course {
+//         SubjectCourse::First || SubjectCourse::Second || Sube
+//     }
+// }
 
 
 
@@ -235,6 +258,9 @@ pub struct CreateDegree<'info> {
     #[account(mut)]
     pub degree_id_handler: Account<'info,IdHandler>,
 
+    #[account(mut)]
+    pub faculty_id_handler: Account<'info, IdHandler>,
+
     #[account(has_one = authority)] 
     pub high_rank: Account<'info, HighRank>,
 
@@ -245,7 +271,7 @@ pub struct CreateDegree<'info> {
         bump,
         constraint = high_rank.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
         constraint = name.len() <= 500,
-        constraint = faculty_id >= 0
+        constraint = (faculty_id >= 0 && faculty_id < faculty_id_handler.smaller_id_available)
     )]
     pub degree_account: Account<'info, Degree>,
 
@@ -262,6 +288,9 @@ pub struct CreateSpecialty <'info> {
     #[account(mut)]
     pub specialty_id_handler: Account<'info, IdHandler>,
 
+    #[account(mut)]
+    pub degree_id_handler: Account<'info, IdHandler>,
+
     #[account(has_one = authority)] 
     pub high_rank: Account<'info, HighRank>,
 
@@ -272,7 +301,7 @@ pub struct CreateSpecialty <'info> {
         bump,
         constraint = high_rank.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
         constraint = name.len() <= 500,
-        constraint = degree_id >= 0
+        constraint = (degree_id >= 0 && degree_id < degree_id_handler.smaller_id_available)
     )]
     pub specialty_account: Account<'info, Specialty>,
 
@@ -281,7 +310,7 @@ pub struct CreateSpecialty <'info> {
 
 
 #[derive(Accounts)]
-#[instruction (new_id: i64)]
+#[instruction (name: String, degree_id: i32, specialty_id: i32, course: SubjectCourse)]
 pub struct CreateSubject<'info> {
 
     #[account(mut)]
@@ -289,16 +318,31 @@ pub struct CreateSubject<'info> {
     
     #[account(mut, has_one = authority)]      // Se comprueba que la cuenta de "Alto cargo" pasada pertenece a quien firma la transacción (autenticación)
     pub high_rank: Account<'info, HighRank>,
-    
-    #[account(init_if_needed, 
+
+    #[account(mut)]
+    pub subject_id_handler: Account<'info,IdHandler>,
+
+    #[account()]
+    pub degree_id_handler: Account<'info,IdHandler>,
+
+    #[account()]
+    pub specialty_id_handler: Account<'info,IdHandler>,
+
+    #[account()]
+    pub professor_id_handler: Account<'info, IdHandler>,
+
+    #[account(init, 
         payer=authority, 
-        space = size_of::<Subject>(), 
-        seeds=[b"subject", new_id.to_le_bytes().as_ref()], 
+        space = size_of::<Subject>() + name.as_bytes().len(), 
+        seeds=[b"subject", subject_id_handler.smaller_id_available.to_le_bytes().as_ref()], 
         bump,
-        constraint = digest(high_rank.identifier_code_hash.clone()) == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c"
+        constraint = high_rank.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
+        constraint = (degree_id >= 0) && (degree_id < degree_id_handler.smaller_id_available),
+        constraint = (specialty_id == -1) || (specialty_id >= 0 && specialty_id < specialty_id_handler.smaller_id_available)
     )]
     pub subject_account: Account<'info, Subject>,
-    pub system_program: Program<'info,System>
+
+    pub system_program: Program<'info, System>
 }
 
 
@@ -397,12 +441,12 @@ state: ProposalState
 #[derive(Default)]
 pub struct Subject {
 name: String,
-id: i64,
-faculty_id: i64,
-specialty_id: i64,
+id: i32,
+degree_id: i32,
+specialty_id: i32,
 course: SubjectCourse,
-professor: Vec<i64>,
-pending_proposals: Vec<i64>
+professor: Vec<i32>,
+pending_proposals: Vec<i32>
 }
 
 #[account]
