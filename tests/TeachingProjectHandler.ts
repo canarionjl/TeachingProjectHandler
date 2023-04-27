@@ -186,6 +186,7 @@ const initializeSubject = async (program: Program<TeachingProjectHandler>, autho
   const id_generator_pda = await findPDAforIdGenerator(program.programId, "subject")
   const degree_id_generator_pda = await findPDAforIdGenerator (program.programId, "degree")
   const specialty_id_generator_pda = await findPDAforIdGenerator (program.programId, "specialty")
+  const professor_id_generator_pda = await findPDAforIdGenerator (program.programId, "professor")
 
 
   const result = await program.methods.createSubject(name, degree_id, specialty_id, course , professors)
@@ -194,6 +195,7 @@ const initializeSubject = async (program: Program<TeachingProjectHandler>, autho
       subjectIdHandler: id_generator_pda,
       degreeIdHandler: degree_id_generator_pda,
       specialtyIdHandler: specialty_id_generator_pda,
+      professorIdHandler: professor_id_generator_pda,
       highRank: high_rank_pda,
       subjectAccount: pda,
       systemProgram: anchor.web3.SystemProgram.programId,
@@ -596,8 +598,6 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     const accountWallet = await fetchSubjectAccount(program, idExpected);
     const idGeneratorAccount = await fetchIdAccount(program, "subject");
 
-    console.log(accountWallet)
-
     expect(new anchor.BN(accountWallet.id).eq(new anchor.BN(idExpected))).to.be.true;
     expect(new anchor.BN(idGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected + 1))).to.be.true;
     expect(new anchor.BN(accountWallet.degreeId).eq(new anchor.BN(0))).to.be.true;
@@ -605,5 +605,35 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     expect(Boolean(buffer)).to.be.true;
   });
 
+  it("Subject is initializated with incorrect professor ID", async () => {
 
+    getExtraFunds(connection, 50, wallet1) //wallet1 is allowed by a HighRank
+    var correct = true;
+    var idExpected = 0;
+
+    try {
+      const account = await fetchIdAccount(program, "subject");
+      idExpected = account.smallerIdAvailable
+    } catch (err) {
+      assert.instanceOf(err, Error);
+      assert.include(err.toString(), "Account does not exist");
+      correct = false;
+    }
+
+    if (!correct) {
+      await initializeIdGenerator(program, wallet1, "subject")
+    }
+
+    try {
+      const signature = await initializeSubject(program, wallet1, idExpected, "Especialidad de prueba", 0, 0, { first:{} }, [-1,2,3])
+    } catch (err) {
+      assert.instanceOf(err, Error);
+      assert.include(err.toString(), "Incorrect professor's id");
+      return;
+    } 
+
+    assert.fail("Expected an error to be thrown");
+
+  });
+ 
 });

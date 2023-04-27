@@ -77,9 +77,13 @@ pub mod teaching_project_handler {
 
         let professor_id_handler = &mut *ctx.accounts.professor_id_handler;
 
-        for professor in &professors {
-            if professor.id > professor_id_generator_account
-        }    
+        for professor_id in &professors {
+            if (professor_id.clone() >= professor_id_handler.smaller_id_available) || professor_id.clone() < 0 {
+                return Err(error!(ErrorCode::IncorrectProfessorId));
+            }
+        }
+        subject_account.professor = professors;
+
         Ok(true)
     }
 
@@ -470,7 +474,7 @@ professor_proposal_id: i64
 
 
 
-//Enums
+                                                          //---------------ENUMS--------------------//
 
 #[derive(Default)]
 #[derive(AnchorSerialize,AnchorDeserialize,Copy,Clone)]
@@ -508,3 +512,10 @@ Eighth,
 Nineth
 }
 
+
+//----------------Errors-----------------//
+#[error_code]
+pub enum ErrorCode {
+    #[msg("Incorrect professor's id submitted")]
+     IncorrectProfessorId
+}
