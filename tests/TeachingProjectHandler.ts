@@ -34,6 +34,13 @@ const createWallet = async (connection: anchor.web3.Connection, funds: number)
   return wallet;
 };
 
+const getExtraFunds = async (connection: anchor.web3.Connection, funds: number, wallet:anchor.web3.Keypair) => {
+  const tx = await connection.requestAirdrop(
+    wallet.publicKey,
+    anchor.web3.LAMPORTS_PER_SOL * funds
+  );
+}
+
 const initializeHighRank = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair): Promise<String> => {
 
   const pda = await findPDAforHighRank(program.programId, authority.publicKey)
@@ -88,11 +95,28 @@ const initializeStudent = async (program: Program<TeachingProjectHandler>, autho
   return result;
 }
 
-const initializeFaculty = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, id: Number, name: string): Promise<String> => {
+const initializeIdGenerator = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, specification: string): Promise<String> => {
+
+  const id_generator_pda = await findPDAforIdGenerator(program.programId, specification)
+
+  const result = await program.methods.createIdGeneratorFor(specification)
+    .accounts({
+      authority: authority.publicKey,
+      specificationIdHandler: id_generator_pda,
+      systemProgram: anchor.web3.SystemProgram.programId,
+    })
+    .signers([authority])
+    .rpc();
+
+  return result;
+}
+
+const initializeFaculty = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, id: number, name: string): Promise<String> => {
 
   const pda = await findPDAforFaculty(program.programId, id)
   const high_rank_pda = await findPDAforHighRank(program.programId, authority.publicKey)
-  const id_generator_pda = await findPDAforIdGenerator(program.programId, "student")
+  const id_generator_pda = await findPDAforIdGenerator(program.programId, "faculty")
+
 
   const result = await program.methods.createFaculty(name)
     .accounts({
@@ -154,15 +178,14 @@ const findPDAforIdGenerator = async (programId: anchor.web3.PublicKey, account_i
   return pda;
 }
 
-
 const findPDAforFaculty = async (programId: anchor.web3.PublicKey, id: Number): Promise<anchor.web3.PublicKey> => {
   const [pda, _bump] = anchor.web3.PublicKey.findProgramAddressSync(
-    [utf8.encode("faculty"), numberToLEBytes(id)],
+    [utf8.encode("faculty"),numberToLEBytes(id)],
     programId
   );
   return pda;
 }
-
+//
 const fetchHighRankAccount = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.PublicKey) => {
   return await program.account.highRank.fetch(await findPDAforHighRank(program.programId, authority))
 }
@@ -174,7 +197,6 @@ const fetchProfessorAccount = async (program: Program<TeachingProjectHandler>, a
 const fetchFacultyAccount = async (program: Program<TeachingProjectHandler>, id: Number) => {
   return await program.account.faculty.fetch(await findPDAforFaculty(program.programId, id))
 }
-
 
 const fetchStudentAccount = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.PublicKey) => {
   return await program.account.student.fetch(await findPDAforStudent(program.programId, authority))
@@ -196,10 +218,10 @@ const getReturnLog = (confirmedTransaction) => {
 };
 
 function numberToLEBytes(number) {
-  const buffer = new ArrayBuffer(4); // Creamos un ArrayBuffer de 4 bytes
+  const buffer = new ArrayBuffer(4); 
   const view = new DataView(buffer);
-  view.setUint32(0, number, true); // Escribimos el número en la vista en formato little endian
-  const bytes = new Uint8Array(buffer); // Creamos un Uint8Array a partir del buffer
+  view.setUint32(0, number, true); 
+  const bytes = new Uint8Array(buffer);
   return bytes;
 }
 
@@ -221,9 +243,9 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
 
   before(async () => {
 
-    wallet1 = await createWallet(connection, 10);
-    wallet2 = await createWallet(connection, 10);
-    wallet3 = await createWallet(connection, 10);
+    wallet1 = await createWallet(connection, 10); // HighRank
+    wallet2 = await createWallet(connection, 10); // Professor
+    wallet3 = await createWallet(connection, 10); // Student
 
   });
 
@@ -232,7 +254,7 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     var idExpected = 0;
     try {
         let highRankIdGeneratorBefore = await fetchIdAccount(program, "highRank");
-        idExpected = highRankIdGeneratorBefore.smallerIdAvailable.toNumber()
+        idExpected = highRankIdGeneratorBefore.smallerIdAvailable
     } catch (err) {
       assert.instanceOf(err, Error);
     }
@@ -246,19 +268,18 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     const accountWallet1 = await fetchHighRankAccount(program, wallet1.publicKey);
     const highRankIdGeneratorAfter = await fetchIdAccount(program, "highRank");
 
-    expect(accountWallet1.id.eq(new anchor.BN(idExpected))).to.be.true;
-    expect(highRankIdGeneratorAfter.smallerIdAvailable.eq(new anchor.BN(newIdAvailable))).to.be.true;
+    expect(new anchor.BN(accountWallet1.id).eq(new anchor.BN(idExpected))).to.be.true;
+    expect(new anchor.BN(highRankIdGeneratorAfter.smallerIdAvailable).eq(new anchor.BN(newIdAvailable))).to.be.true;
     assert.equal(accountWallet1.identifierCodeHash, CryptoJS.SHA256("1111").toString());
     expect(Boolean(buffer)).to.be.true;
    
   });
 
-  
   it("Professor is initializated properly", async () => {
     var idExpected = 0;
     try {
         let professorIdGeneratorBefore = await fetchIdAccount(program, "professor");
-        idExpected = professorIdGeneratorBefore.smallerIdAvailable.toNumber()
+        idExpected = professorIdGeneratorBefore.smallerIdAvailable
     } catch (err) {
       assert.instanceOf(err, Error);
     }
@@ -270,12 +291,11 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     const accountWallet2 = await fetchProfessorAccount(program, wallet2.publicKey);
 
   
-    expect(accountWallet2.id.eq(new anchor.BN(idExpected))).to.be.true;
+    expect(new anchor.BN(accountWallet2.id).eq(new anchor.BN(idExpected))).to.be.true;
     assert.equal(accountWallet2.identifierCodeHash, CryptoJS.SHA256("2222").toString());
     expect(Boolean(buffer)).to.be.true;
    
   });
-
 
   it("Reinitializing the same professor with different ID...", async () => {
    
@@ -290,13 +310,12 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
   
   });
 
-
   it("Student is initializated properly", async () => {
 
     var idExpected = 0;
     try {
         let studentIdGeneratorBefore = await fetchIdAccount(program, "student");
-        idExpected = studentIdGeneratorBefore.smallerIdAvailable.toNumber();
+        idExpected = studentIdGeneratorBefore.smallerIdAvailable;
     } catch (err) {
       assert.instanceOf(err, Error);
     }
@@ -310,37 +329,42 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
 
     const studentIdGeneratorAfter = await fetchIdAccount(program, "student");
    
-    expect(accountWallet3.id.eq(new anchor.BN(idExpected))).to.be.true;
-    expect(studentIdGeneratorAfter.smallerIdAvailable.eq(new anchor.BN(newIdAvailable))).to.be.true;
+    expect(new anchor.BN(accountWallet3.id).eq(new anchor.BN(idExpected))).to.be.true;
+    expect(new anchor.BN(studentIdGeneratorAfter.smallerIdAvailable).eq(new anchor.BN(newIdAvailable))).to.be.true;
     assert.equal(accountWallet3.identifierCodeHash, CryptoJS.SHA256("3333").toString());
     expect(Boolean(buffer)).to.be.true;
    
   });
 
-  it("Faculty is initializated properly", async () => {
+  it("Faculty is properly initializated", async () => {
 
-    var idExpected = 0;
-    try {
-        let studentIdGeneratorBefore = await fetchIdAccount(program, "faculty");
-        idExpected = studentIdGeneratorBefore.smallerIdAvailable.toNumber();
-    } catch (err) {
-      assert.instanceOf(err, Error);
-    }
-    const newIdAvailable = idExpected + 1;
-    
-    const signature = await initializeFaculty(program, wallet1, idExpected, "Asignatura de Prueba");
-    await connection.confirmTransaction(signature.toString())
-    const transaction = await connection.getTransaction(signature.toString(), {commitment: "confirmed"});
-    const [key, data, buffer] = getReturnLog(transaction);
-    const accountWallet4 = await fetchFacultyAccount(program, idExpected);
+      getExtraFunds(connection,50, wallet1) //wallet1 is allowed by a HighRank
+      var correct = true;
+      var idExpected = 0;
 
-    const facultyIdGeneratorAfter = await fetchIdAccount(program, "faculty");
-   
-    expect(accountWallet4.id.eq(new anchor.BN(idExpected))).to.be.true;
-    expect(facultyIdGeneratorAfter.smallerIdAvailable.eq(new anchor.BN(newIdAvailable))).to.be.true;
-    assert.equal(accountWallet4.identifierCodeHash, CryptoJS.SHA256("3333").toString());
-    expect(Boolean(buffer)).to.be.true;
-   
+      try {
+        const account = await fetchIdAccount(program, "faculty");
+        idExpected = account.smallerIdAvailable
+      } catch (err) {
+        assert.instanceOf(err, Error);
+        assert.include(err.toString(), "Account does not exist");
+        correct = false;
+      }
+
+      if (!correct) {
+        await initializeIdGenerator(program, wallet1, "faculty")
+      }
+
+      const signature = await initializeFaculty(program,wallet1,idExpected,"Asignatura de prueba")
+      await connection.confirmTransaction(signature.toString())
+      const transaction = await connection.getTransaction(signature.toString(), {commitment: "confirmed"});
+      const [key, data, buffer] = getReturnLog(transaction);
+      const accountWallet = await fetchFacultyAccount(program, idExpected);
+      const idGeneratorAccount = await fetchIdAccount(program, "faculty");
+
+      expect(new anchor.BN(accountWallet.id).eq(new anchor.BN(idExpected))).to.be.true;
+      expect(new anchor.BN(idGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected+1))).to.be.true;
+      expect(Boolean(buffer)).to.be.true;
   });
 
 });

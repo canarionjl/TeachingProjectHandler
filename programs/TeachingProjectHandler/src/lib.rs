@@ -2,9 +2,6 @@ use anchor_lang::prelude::*;
 use std::mem::size_of;
 use sha256::digest;
 
-
-
-
 declare_id!("Hd3HLLMfbMJonaCvcQ8GugmTdKsGoHvce1JfAUU2gmiS");
 
 #[program]
@@ -23,20 +20,20 @@ pub mod teaching_project_handler {
     }
 
     pub fn create_professor(ctx: Context<CreateProfessor>, user_type_code:String) -> Result<bool> {
-
         let professor_account = &mut *ctx.accounts.professor_account;
         professor_account.id = general_id_generator(&mut ctx.accounts.professor_id_handler);
         professor_account.identifier_code_hash = digest(user_type_code);
         professor_account.authority = *ctx.accounts.authority.key;
-
         Ok(true)
     }
 
     pub fn create_student(ctx: Context<CreateStudent>, user_type_code:String) -> Result<bool> {
+
         let student_account = &mut *ctx.accounts.student_account;
         student_account.id = general_id_generator(&mut ctx.accounts.student_id_handler);
         student_account.identifier_code_hash = digest(user_type_code);
         student_account.authority = *ctx.accounts.authority.key;
+        
         Ok(true)
     }
 
@@ -45,17 +42,56 @@ pub mod teaching_project_handler {
         let faculty_account = &mut *ctx.accounts.faculty_account;
         faculty_account.id = general_id_generator(&mut ctx.accounts.faculty_id_handler);
         faculty_account.name = name;
+
         Ok(true)
     }
 
-    
+    pub fn create_id_generator_for(ctx: Context<CreateIdHandler>, _specification: String) -> Result<bool> {
+        let id_generator_account = &mut *ctx.accounts.specification_id_handler;
+        id_generator_account.smaller_id_available = 0;
+        Ok(true)
+    }
 
 }
 
-fn general_id_generator (id_handler_account: &mut Account<IdHandler>) ->  i64 {
-    let id: i64 = id_handler_account.smaller_id_available;
+
+
+
+
+
+                                                        // ------- AUX FUNCTIONS ------------- //
+
+fn general_id_generator (id_handler_account: &mut Account<IdHandler>) ->  i32 {
+    let id: i32 = id_handler_account.smaller_id_available;
     id_handler_account.smaller_id_available = id_handler_account.smaller_id_available + 1;
     return id;
+}
+
+
+
+
+
+
+
+                          // --------- ACCOUNTS DATA STRUCTURES (CONTEXT PARAM IN MOD teaching_project_handler FUNCTIONS) ----- 
+
+#[derive(Accounts)]
+#[instruction(_specification: String)]
+pub struct CreateIdHandler<'info> {
+
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = size_of::<IdHandler>() + 140,
+        seeds = [(_specification.clone() + "IdHandler").as_bytes().as_ref()],
+        bump
+    )]
+    pub specification_id_handler: Account<'info,IdHandler>,
+
+    pub system_program: Program<'info,System>
 }
 
 #[derive(Accounts)]
@@ -150,64 +186,88 @@ pub struct CreateFaculty<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    #[account(
-        init_if_needed,
-        payer = authority,
-        space = size_of::<IdHandler>() + 140,
-        seeds = [b"facultyIdHandler"],
-        bump
-    )]
+    #[account(mut)]
     pub faculty_id_handler: Account<'info,IdHandler>,
 
-    #[account(mut, has_one = authority)]      //Se comprueba que la cuenta de "Alto cargo" pasada pertenece a quien firma la transacción (autenticación)
+    #[account(has_one = authority)] 
     pub high_rank: Account<'info, HighRank>,
 
     #[account(init, 
         payer=authority, 
-        space = size_of::<Faculty>() + name.as_bytes().len() - 20, 
+        space = size_of::<Faculty>() + name.as_bytes().len() + 4, 
         seeds=[b"faculty", faculty_id_handler.smaller_id_available.to_le_bytes().as_ref()], 
         bump,
-        constraint = digest(high_rank.identifier_code_hash.clone()) == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
+        constraint = high_rank.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
         constraint = name.len() <= 200
     )]
-    pub faculty_account: Account<'info, Subject>,
+    pub faculty_account: Account<'info, Faculty>,
 
     pub system_program: Program<'info,System>
 }
 
 
 #[derive(Accounts)]
-#[instruction (new_id: i64)]
-pub struct CreateSubject<'info> {
+#[instruction (name: String, faculty_id:i32)]
+pub struct CreateDegree<'info> {
 
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    #[account(mut, has_one = authority)]      //Se comprueba que la cuenta de "Alto cargo" pasada pertenece a quien firma la transacción (autenticación)
+    #[account(mut)]
+    pub degree_id_handler: Account<'info,IdHandler>,
+
+    #[account(has_one = authority)] 
     pub high_rank: Account<'info, HighRank>,
 
-    #[account(init_if_needed, 
+    #[account(init, 
         payer=authority, 
-        space = size_of::<Subject>(), 
-        seeds=[b"subject", new_id.to_le_bytes().as_ref()], 
+        space = size_of::<Faculty>() + name.as_bytes().len() + 4, 
+        seeds=[b"faculty", faculty_id_handler.smaller_id_available.to_le_bytes().as_ref()], 
         bump,
-        constraint = digest(high_rank.identifier_code_hash.clone()) == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c"
+        constraint = high_rank.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
+        constraint = name.len() <= 500
     )]
-    pub subject_account: Account<'info, Subject>,
+    pub faculty_account: Account<'info, Faculty>,
 
     pub system_program: Program<'info,System>
 }
 
 
-//Accounts (Data Structs)
 
 
-//  ----Users ----  //
+
+
+// #[derive(Accounts)]
+// #[instruction (new_id: i64)]
+// pub struct CreateSubject<'info> {
+//     #[account(mut)]
+//     pub authority: Signer<'info>,
+//     #[account(mut, has_one = authority)]      //Se comprueba que la cuenta de "Alto cargo" pasada pertenece a quien firma la transacción (autenticación)
+//     pub high_rank: Account<'info, HighRank>,
+//     #[account(init_if_needed, 
+//         payer=authority, 
+//         space = size_of::<Subject>(), 
+//         seeds=[b"subject", new_id.to_le_bytes().as_ref()], 
+//         bump,
+//         constraint = digest(high_rank.identifier_code_hash.clone()) == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c"
+//     )]
+//     pub subject_account: Account<'info, Subject>,
+//     pub system_program: Program<'info,System>
+// }
+
+
+
+
+
+                                                // -------------- ACCOUNTS (DATA STRUCTS) --------------------- //
+
+
+//  ----Users ----  // 
 
 #[account]
 #[derive(Default)]
 pub struct HighRank {
-    id: i64,                                // 8 bytes
+    id: i32,                                // 8 bytes
     identifier_code_hash: String,           // Tamaño real: 32 bytes + 4 (alineación) = 36 bytes || Tamaño por defecto: 24 (20 + 4 alineación) --> dif = + 12 bytes
     authority: Pubkey,                      // 32 bytes
     pendent_professor_proposals: Vec<i64>   // Suponiendo 15 propuestas: 15*8 bytes (120 bytes + 4 alineación) || Tamaño por defecto: 24 (20 + 4 alineación) --> dif = + 100 bytes
@@ -216,14 +276,14 @@ pub struct HighRank {
 #[account]
 #[derive(Default)]
 pub struct IdHandler {
-    smaller_id_available: i64,
+    smaller_id_available: i32,
     reused_id: Vec<i64>                     // Suponiendo 20 id's: 20*8 bytes (160 bytes + 4 alineación) || Tamaño por defecto: 24 (20 + 4 alineación) --> dif = + 140 bytes
 }
 
 #[account]
 #[derive(Default)]
 pub struct Professor {
-    id: i64,                                      // 8 bytes
+    id: i32,                                      // 8 bytes
     identifier_code_hash: String,                 // Tamaño real: 32 bytes + 4 (alineación) = 36 bytes || Tamaño por defecto: 24 (20 + 4 alineación) --> dif = + 12 bytes
     authority: Pubkey,                            // 32 bytes
     subjects: Vec<u64>,                           // Suponiendo 10 asignaturas: 10*8 bytes (80 bytes + 4 alineación) || Tamaño por defecto: 24 (20 + 4 alineación) --> dif = + 60 bytes
@@ -236,7 +296,7 @@ pub struct Professor {
 #[account]
 #[derive(Default)]
 pub struct Student {
-    id: i64,                               // 8 bytes
+    id: i32,                               // 8 bytes
     identifier_code_hash: String,          // Tamaño real: 32 bytes + 4 (alineación) = 36 bytes || Tamaño por defecto: 24 (20 + 4 alineación) --> dif = + 12 bytes
     authority: Pubkey,                     // 32 bytes
     subjects: Vec<u64>,                    // Suponiendo 15 asignaturas: 15*8 bytes (120 bytes + 4 alineación) || Tamaño por defecto: 24 (20 + 4 alineación) --> dif = + 100 bytes
@@ -244,12 +304,14 @@ pub struct Student {
     punishments: u8,                       // 1 byte
     rewards: u32,                          // 4 bytes
 } 
-    
+
+
 // ------ Academic Data ------ //
+
 #[account]
 #[derive(Default)]
 pub struct Faculty {
-id: i64,      // 8 bytes
+id: i32,      // 8 bytes
 name: String  // Longitud variable (máx establecido en 200 caracteres)
 }
 
@@ -331,6 +393,7 @@ WaitingForHighRank,
 Rejected,
 Accepted
 }
+
 #[derive(Default)]
 #[derive(AnchorSerialize,AnchorDeserialize,Copy,Clone)]
 pub enum ProfessorProposalState { 
