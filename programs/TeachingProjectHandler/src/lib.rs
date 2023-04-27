@@ -46,6 +46,26 @@ pub mod teaching_project_handler {
         Ok(true)
     }
 
+    pub fn create_degree (ctx: Context<CreateDegree>, name:String, faculty_id: i32) -> Result<bool> {
+
+        let degree_account = &mut *ctx.accounts.degree_account;
+        degree_account.id = general_id_generator(&mut ctx.accounts.degree_id_handler);
+        degree_account.name = name;
+        degree_account.faculty_id = faculty_id;
+
+        Ok(true)
+    }
+
+    pub fn create_specialty (ctx: Context<CreateSpecialty>, name:String, degree_id: i32) -> Result<bool> {
+
+        let specialty_account = &mut *ctx.accounts.specialty_account;
+        specialty_account.id = general_id_generator(&mut ctx.accounts.specialty_id_handler);
+        specialty_account.name = name;
+        specialty_account.degree_id = degree_id;
+
+        Ok(true)
+    }
+
     pub fn create_id_generator_for(ctx: Context<CreateIdHandler>, _specification: String) -> Result<bool> {
         let id_generator_account = &mut *ctx.accounts.specification_id_handler;
         id_generator_account.smaller_id_available = 0;
@@ -198,13 +218,12 @@ pub struct CreateFaculty<'info> {
         seeds=[b"faculty", faculty_id_handler.smaller_id_available.to_le_bytes().as_ref()], 
         bump,
         constraint = high_rank.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
-        constraint = name.len() <= 200
+        constraint = name.len() <= 500
     )]
     pub faculty_account: Account<'info, Faculty>,
 
     pub system_program: Program<'info,System>
 }
-
 
 #[derive(Accounts)]
 #[instruction (name: String, faculty_id:i32)]
@@ -221,39 +240,66 @@ pub struct CreateDegree<'info> {
 
     #[account(init, 
         payer=authority, 
-        space = size_of::<Faculty>() + name.as_bytes().len() + 4, 
-        seeds=[b"faculty", faculty_id_handler.smaller_id_available.to_le_bytes().as_ref()], 
+        space = size_of::<Degree>() + name.as_bytes().len() + 4, 
+        seeds=[b"degree", degree_id_handler.smaller_id_available.to_le_bytes().as_ref()], 
         bump,
         constraint = high_rank.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
-        constraint = name.len() <= 500
+        constraint = name.len() <= 500,
+        constraint = faculty_id >= 0
     )]
-    pub faculty_account: Account<'info, Faculty>,
+    pub degree_account: Account<'info, Degree>,
+
+    pub system_program: Program<'info,System>
+}
+
+#[derive(Accounts)]
+#[instruction (name: String, degree_id:i32)]
+pub struct CreateSpecialty <'info> {
+
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(mut)]
+    pub specialty_id_handler: Account<'info, IdHandler>,
+
+    #[account(has_one = authority)] 
+    pub high_rank: Account<'info, HighRank>,
+
+    #[account(init, 
+        payer=authority, 
+        space = size_of::<Specialty>() + name.as_bytes().len() + 4, 
+        seeds=[b"specialty", specialty_id_handler.smaller_id_available.to_le_bytes().as_ref()], 
+        bump,
+        constraint = high_rank.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
+        constraint = name.len() <= 500,
+        constraint = degree_id >= 0
+    )]
+    pub specialty_account: Account<'info, Specialty>,
 
     pub system_program: Program<'info,System>
 }
 
 
+#[derive(Accounts)]
+#[instruction (new_id: i64)]
+pub struct CreateSubject<'info> {
 
-
-
-
-// #[derive(Accounts)]
-// #[instruction (new_id: i64)]
-// pub struct CreateSubject<'info> {
-//     #[account(mut)]
-//     pub authority: Signer<'info>,
-//     #[account(mut, has_one = authority)]      //Se comprueba que la cuenta de "Alto cargo" pasada pertenece a quien firma la transacción (autenticación)
-//     pub high_rank: Account<'info, HighRank>,
-//     #[account(init_if_needed, 
-//         payer=authority, 
-//         space = size_of::<Subject>(), 
-//         seeds=[b"subject", new_id.to_le_bytes().as_ref()], 
-//         bump,
-//         constraint = digest(high_rank.identifier_code_hash.clone()) == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c"
-//     )]
-//     pub subject_account: Account<'info, Subject>,
-//     pub system_program: Program<'info,System>
-// }
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    
+    #[account(mut, has_one = authority)]      // Se comprueba que la cuenta de "Alto cargo" pasada pertenece a quien firma la transacción (autenticación)
+    pub high_rank: Account<'info, HighRank>,
+    
+    #[account(init_if_needed, 
+        payer=authority, 
+        space = size_of::<Subject>(), 
+        seeds=[b"subject", new_id.to_le_bytes().as_ref()], 
+        bump,
+        constraint = digest(high_rank.identifier_code_hash.clone()) == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c"
+    )]
+    pub subject_account: Account<'info, Subject>,
+    pub system_program: Program<'info,System>
+}
 
 
 
@@ -318,17 +364,17 @@ name: String  // Longitud variable (máx establecido en 200 caracteres)
 #[account]
 #[derive(Default)]
 pub struct Degree {
-id: i64,
+id: i32,
 name: String,
-faculty_id: i64
+faculty_id: i32
 }
 
 #[account]
 #[derive(Default)]
 pub struct Specialty {
-id: i64,
-nombre: String,
-degree_id: i64
+id: i32,
+name: String,
+degree_id: i32
 }
 
 #[account]
