@@ -66,7 +66,7 @@ pub mod teaching_project_handler {
         Ok(true)
     }
 
-    pub fn create_subject(ctx: Context<CreateSubject>, name:String, degree_id: i32, specialty_id: i32, course: SubjectCourse, professors: Vec<i32>) -> Result<bool> {
+    pub fn create_subject(ctx: Context<CreateSubject>, name:String, degree_id: i32, specialty_id: i32, course: SubjectCourse, professors: Vec<i32>, students: Vec<i32>) -> Result<bool> {
 
         let subject_account = &mut *ctx.accounts.subject_account;
         subject_account.id = general_id_generator(&mut ctx.accounts.subject_id_handler);
@@ -82,10 +82,112 @@ pub mod teaching_project_handler {
                 return Err(error!(ErrorCode::IncorrectProfessorId));
             }
         }
-        subject_account.professor = professors;
+        subject_account.professors = professors;
+
+        let student_id_handler = &mut *ctx.accounts.student_id_handler;
+
+        for student_id in &students {
+            if (student_id.clone() >= student_id_handler.smaller_id_available) || student_id.clone() < 0 {
+                return Err(error!(ErrorCode::IncorrectStudentId));
+            }
+        }
+        subject_account.students = students;
+
+        Ok(true)
+
+    }
+
+    pub fn create_proposal_by_student(ctx: Context<CreateProposalByStudent>, title:String, content:String,  subject_id: i32) -> Result<bool> {
+
+        let proposal_account = &mut *ctx.accounts.proposal_account;
+
+        proposal_account.title = title;
+        proposal_account.content = content;
+        proposal_account.subject_id = subject_id;
+
+        proposal_account.publishing_timestamp = Clock::get().unwrap().unix_timestamp;
+        proposal_account.ending_timestamp = proposal_account.publishing_timestamp + 2592000;
+
+        let creator_account = &mut *ctx.accounts.student_creator;
+        proposal_account.creator_id = creator_account.id;
+
+        proposal_account.id = general_id_generator(&mut ctx.accounts.proposal_id_handler);
+        proposal_account.user_type = ProposalUserType::Student;
+
+        proposal_account.high_rank_validation = false;
+        proposal_account.updated_by_teacher = false;
+
 
         Ok(true)
     }
+
+    pub fn create_proposal_by_professor(ctx: Context<CreateProposalByProfessor>, title:String, content:String,  subject_id: i32) -> Result<bool> {
+
+        let proposal_account = &mut *ctx.accounts.proposal_account;
+
+        proposal_account.title = title;
+        proposal_account.content = content;
+        proposal_account.subject_id = subject_id;
+
+        proposal_account.publishing_timestamp = Clock::get().unwrap().unix_timestamp;
+        proposal_account.ending_timestamp = proposal_account.publishing_timestamp + 2592000;
+
+        let creator_account = &mut *ctx.accounts.professor_creator;
+        proposal_account.creator_id = creator_account.id;
+
+        proposal_account.id = general_id_generator(&mut ctx.accounts.proposal_id_handler);
+        proposal_account.user_type = ProposalUserType::Student;
+
+        proposal_account.high_rank_validation = false;
+        proposal_account.updated_by_teacher = false;
+
+        Ok(true)
+    }
+
+    pub fn vote_proposal_by_student(ctx: Context<VoteProposalByStudent>, vote: bool) -> Result<ProposalState> {
+
+        let proposal_account = &mut *ctx.accounts.proposal_account;
+        let student_account = &mut *ctx.accounts.voting_student;
+
+    // Evaluating if student has already voted
+    for student_id in &(proposal_account.students_that_have_voted) {
+        if student_id.clone() == student_account.id {
+            return Err(error!(ErrorCode::IncorrectProfessorId));
+        }
+    }
+
+    // Evaluating if Votation is open --> if so, new vote is registered 
+        if votation_is_open(proposal_account.ending_timestamp) {
+            if vote == true {
+                proposal_account.supporting_votes = proposal_account.supporting_votes + 1;
+            } else {
+                proposal_account.supporting_votes = proposal_account.against_votes + 1;
+            }
+            proposal_account.students_that_have_voted.push(student_account.id)
+       } else {
+            return Err(error!(ErrorCode::VotationIsNotOpen));
+       }
+
+       proposal_account.state = ProposalState::VotationInProgress;
+
+       //Evaluating if the number of votes has reached 'expected_votes'
+        if proposal_account.supporting_votes + proposal_account.against_votes == proposal_account.expected_votes {
+
+            //Evaluate if proposal has reached agreement (positive result of votation)
+            if proposal_has_reached_agreement(proposal_account.supporting_votes, proposal_account.against_votes) {
+                proposal_account.state = ProposalState::WaitingForTeacher;
+                emit! (NewProfessorProposalCreated {proposal_id: proposal_account.id});
+            } else {
+                proposal_account.state = ProposalState::Rejected;
+            }
+       }
+
+        
+
+        Ok (proposal_account.state)
+
+    }
+
 
     pub fn create_id_generator_for(ctx: Context<CreateIdHandler>, _specification: String) -> Result<bool> {
         let id_generator_account = &mut *ctx.accounts.specification_id_handler;
@@ -108,19 +210,20 @@ fn general_id_generator (id_handler_account: &mut Account<IdHandler>) ->  i32 {
     return id;
 }
 
-// fn subjectCourseIsValid (course: SubjectCourse) {
-//     match course {
-//         SubjectCourse::First || SubjectCourse::Second || Sube
-//     }
-// }
+fn votation_is_open (ending_timestamp_of_votation: i64) -> bool {
+    if Clock::get().unwrap().unix_timestamp > ending_timestamp_of_votation {return true} else {return false}
+}
 
+fn proposal_has_reached_agreement(supporting_votes: u32, against_votes: u32) -> bool {
+    let total_votes: u32 = supporting_votes+ against_votes;
+    if (supporting_votes/total_votes) > (2/3) {
+        true 
+    } else {
+        false
+    }
+}
 
-
-
-
-
-
-                          // --------- ACCOUNTS DATA STRUCTURES (CONTEXT PARAM IN MOD teaching_project_handler FUNCTIONS) ----- 
+                          // --------- ACCOUNTS DATA STRUCTURES ('CONTEXT' PARAM IN  'teaching_project_handler' MOD FUNCTIONS) ----- 
 
 #[derive(Accounts)]
 #[instruction(_specification: String)]
@@ -335,6 +438,9 @@ pub struct CreateSubject<'info> {
     #[account()]
     pub professor_id_handler: Account<'info, IdHandler>,
 
+    #[account()]
+    pub student_id_handler: Account<'info, IdHandler>,
+
     #[account(init, 
         payer=authority, 
         space = size_of::<Subject>() + name.as_bytes().len(), 
@@ -349,9 +455,97 @@ pub struct CreateSubject<'info> {
     pub system_program: Program<'info, System>
 }
 
+#[derive(Accounts)]
+#[instruction (title: String, content: String, subject_id: i32)]
+pub struct CreateProposalByStudent <'info> {
 
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    
+    #[account(mut, has_one = authority)]      
+    pub student_creator: Account<'info, Student>,
 
+    #[account(mut)]
+    pub proposal_id_handler: Account<'info,IdHandler>,
+    
+    #[account()]
+    pub subject_id_handler: Account<'info,IdHandler>,
 
+    #[account(init, 
+        payer=authority, 
+        space = size_of::<Proposal>() + title.as_bytes().len() + content.as_bytes().len() + 40, 
+        seeds=[b"proposal", proposal_id_handler.smaller_id_available.to_le_bytes().as_ref()], 
+        bump,
+        constraint = student_creator.identifier_code_hash == "318aee3fed8c9d040d35a7fc1fa776fb31303833aa2de885354ddf3d44d8fb69",
+        constraint = (subject_id >= 0) && (subject_id < subject_id_handler.smaller_id_available),
+        constraint = title.len() <= 100 && content.len() <= 2500
+        
+    )]
+    pub proposal_account: Account<'info, Proposal>,
+
+    pub system_program: Program<'info, System>
+}
+
+#[derive(Accounts)]
+#[instruction (title: String, content: String, subject_id: i32)]
+pub struct CreateProposalByProfessor <'info> {
+
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    
+    #[account(mut, has_one = authority)]      
+    pub professor_creator: Account<'info, Professor>,
+
+    #[account(mut)]
+    pub proposal_id_handler: Account<'info,IdHandler>,
+    
+    #[account()]
+    pub subject_id_handler: Account<'info,IdHandler>,
+
+    #[account(init, 
+        payer=authority, 
+        space = size_of::<Proposal>() + title.as_bytes().len() + content.as_bytes().len() + 40, 
+        seeds=[b"proposal", proposal_id_handler.smaller_id_available.to_le_bytes().as_ref()], 
+        bump,
+        constraint = professor_creator.identifier_code_hash == "edee29f882543b956620b26d0ee0e7e950399b1c4222f5de05e06425b4c995e9",
+        constraint = (subject_id >= 0) && (subject_id < subject_id_handler.smaller_id_available),
+        constraint = title.len() <= 100 && content.len() <= 2500
+    )]
+    pub proposal_account: Account<'info, Proposal>,
+
+    pub system_program: Program<'info, System>
+}
+
+#[derive(Accounts)]
+pub struct VoteProposalByStudent <'info> {
+
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    
+    #[account(mut, has_one = authority)]      
+    pub voting_student: Account<'info, Student>,
+    
+    #[account()]
+    pub subject_id_handler: Account<'info,IdHandler>,
+
+    #[account(
+        mut,
+        seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref()], 
+        bump,
+        constraint = voting_student.identifier_code_hash == "318aee3fed8c9d040d35a7fc1fa776fb31303833aa2de885354ddf3d44d8fb69",
+        constraint =  proposal_account.subject_id <= subject_id_handler.smaller_id_available,
+        constraint = ProposalState::VotationInProgress == proposal_account.state                                               // check if Votation is in Progress
+    )]
+    pub proposal_account: Account<'info, Proposal>,
+
+    #[account(
+        seeds = [b"subject", proposal_account.subject_id.to_le_bytes().as_ref()],
+        bump,
+    )]
+    pub subject_account: Account<'info, Subject>,
+
+    pub system_program: Program<'info, System>
+}
 
                                                 // -------------- ACCOUNTS (DATA STRUCTS) --------------------- //
 
@@ -428,17 +622,22 @@ degree_id: i32
 #[account]
 #[derive(Default)]
 pub struct Proposal {
-id: i64,
-title: String,
-content: String,
-supporting_votes: u16,
-against_votes: u16,
-expected_votes: u32,
-publishing_timestamp: i64,
-ending_timestamp: i64,
-updated_by_teacher: bool,
-high_rank_validation: bool,
-state: ProposalState
+    students_that_have_voted: Vec<i32>,          // Suponiendo 2.500 votos --> students + professors deben sumar 2500 id's ==> 2500 * 4 B (32 bits) = 10000 bytes = 10 KB
+    professors_that_have_voted: Vec<i32>,
+    id: i32,                                     
+    title: String,
+    content: String,
+    creator_id: i32,
+    user_type: ProposalUserType,                  
+    subject_id: i32,
+    supporting_votes: u32,
+    against_votes: u32,
+    expected_votes: u32,
+    publishing_timestamp: i64,
+    ending_timestamp: i64,
+    updated_by_teacher: bool,
+    high_rank_validation: bool,
+    state: ProposalState
 }
 
 #[account]
@@ -449,26 +648,27 @@ id: i32,
 degree_id: i32,
 specialty_id: i32,
 course: SubjectCourse,
-professor: Vec<i32>,
+students: Vec<i32>,
+professors: Vec<i32>,
 pending_proposals: Vec<i32>
 }
 
 #[account]
 #[derive(Default)]
 pub struct ProfessorProposal {
-id: i64,
-original_proposal_id: i64,
-name: String,
-publishing_timestamp: i64,
-ending_timestamp: i64,
-state: ProfessorProposalState
+    id: i64,
+    original_proposal_id: i64,
+    name: String,
+    publishing_timestamp: i64,
+    ending_timestamp: i64,
+    state: ProfessorProposalState
 }
 
 #[account]
 #[derive(Default)]
 pub struct HighRankProposal {
-id: i64,
-professor_proposal_id: i64
+    id: i64,
+    professor_proposal_id: i64
 }
 
 
@@ -477,10 +677,9 @@ professor_proposal_id: i64
                                                           //---------------ENUMS--------------------//
 
 #[derive(Default)]
-#[derive(AnchorSerialize,AnchorDeserialize,Copy,Clone)]
+#[derive(AnchorSerialize,AnchorDeserialize,Copy,Clone, PartialEq)]
 pub enum ProposalState {
 #[default]
-NotStarted,
 VotationInProgress,
 WaitingForTeacher,
 WaitingForHighRank,
@@ -494,6 +693,14 @@ pub enum ProfessorProposalState {
 #[default]
 Pending,
 Complete
+}
+
+#[derive(Default)]
+#[derive(AnchorSerialize,AnchorDeserialize,Copy,Clone)]
+pub enum ProposalUserType { 
+    #[default]
+    Student,
+    Professor
 }
 
 #[derive(Default)]
@@ -517,5 +724,21 @@ Nineth
 #[error_code]
 pub enum ErrorCode {
     #[msg("Incorrect professor's id submitted")]
-     IncorrectProfessorId
+    IncorrectProfessorId,
+
+    #[msg("Incorrect student's id submitted")]
+    IncorrectStudentId,
+
+    #[msg("User has already voted on this proposal")]
+    UserHasAlreadyVoted,
+
+    #[msg("Votation is not open")]
+    VotationIsNotOpen
+}
+
+
+//----------------Events-----------------//
+#[event]
+pub struct NewProfessorProposalCreated {
+    pub proposal_id: i32
 }
