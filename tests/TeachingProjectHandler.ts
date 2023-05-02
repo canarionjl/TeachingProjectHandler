@@ -456,6 +456,11 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
 
   it("HighRank is initializated properly", async () => {
 
+    /*
+     * Check if ID's generator for HighRank accounts exist --> 
+     * If so, the smaller ID available is obtained from it 
+     * If not, the new ID will be 0 since no ID's generator created implies no HighRank Account has been created previously
+    */
     var idExpected = 0;
     try {
       let highRankIdGeneratorBefore = await fetchIdAccount(program, "highRank");
@@ -464,23 +469,53 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
       assert.instanceOf(err, Error);
     }
 
+    //The new ID that should be available in the ID's generator after creating the new HighRank account
     const newIdAvailable = idExpected + 1
 
+    //Initializing HighRankAccount and getting the signature of the transaction
     const signature = await initializeHighRank(program, wallet1);
-    await connection.confirmTransaction(signature.toString())
-    const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
-    const [key, data, buffer] = getReturnLog(transaction);
-    const accountWallet1 = await fetchHighRankAccount(program, wallet1.publicKey);
-    const highRankIdGeneratorAfter = await fetchIdAccount(program, "highRank");
 
-    expect(new anchor.BN(accountWallet1.id).eq(new anchor.BN(idExpected))).to.be.true;
-    expect(new anchor.BN(highRankIdGeneratorAfter.smallerIdAvailable).eq(new anchor.BN(newIdAvailable))).to.be.true;
-    assert.equal(accountWallet1.identifierCodeHash, CryptoJS.SHA256("1111").toString());
-    expect(Boolean(buffer)).to.be.true;
+    //Confirming the previous transaction in the validator node
+    await connection.confirmTransaction(signature.toString())
+
+    //Getting all the information relative to the transaction that has been carried out
+    const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
+
+    /* Getting the Return Log from the transaction information in order to get the boolean returned from the SC (Rust) function
+     * 'buffer' contains the raw binary information of the return, which contains the information of the boolean returned by the tested method
+    */
+    const [key, data, buffer] = getReturnLog(transaction);
+    const reader_U8 = new Borsh.BinaryReader(buffer).readU8;
+    const program_return = Boolean(reader_U8);
+
+    //Fetching the data of the new account created through its PDA
+    const newHighRankAccount = await fetchHighRankAccount(program, wallet1.publicKey);
+
+    //Getting the data of the HighRank ID's generator
+    const highRankIdGeneratorAfterCreating = await fetchIdAccount(program, "highRank");
+
+
+    //The ID of the new HighRank Account must be equal to the idExpected param (which is the ID provided by the ID's generator for HighRank)
+    expect(new anchor.BN(newHighRankAccount.id).eq(new anchor.BN(idExpected))).to.be.true;
+
+    // The new smaller availabled ID on the ID's generator must be equal to the param newIdAvailable (i.e. the new id available must have been incremented in +1)
+    expect(new anchor.BN(highRankIdGeneratorAfterCreating.smallerIdAvailable).eq(new anchor.BN(newIdAvailable))).to.be.true;
+
+    // The identifierCode hash must be equal to the sha256 hash of '1111' (which is the identifier of every highRank to have certain privileges)
+    assert.equal(newHighRankAccount.identifierCodeHash, CryptoJS.SHA256("1111").toString());
+
+    // The program must return true if everything is correct
+    expect(program_return).to.be.true;
 
   });
 
   it("Professor is initializated properly", async () => {
+
+     /*
+     * Check if ID's generator for Professor accounts exist --> 
+     * If so, the smaller ID available is obtained from it 
+     * If not, the new ID will be 0 since no ID's generator created implies no Professor Acccount has been created previously
+    */
     var idExpected = 0;
     try {
       let professorIdGeneratorBefore = await fetchIdAccount(program, "professor");
@@ -489,21 +524,46 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
       assert.instanceOf(err, Error);
     }
 
+    //The new ID that should be available in the ID's generator after creating the new Professor account
+    const newIdAvailable = idExpected + 1
+
+    //Initializing ProfessorAccount and getting the signature of the transaction
     const signature = await initializeProfessor(program, wallet2);
+
+    //Confirming the previous transaction in the validator node
     await connection.confirmTransaction(signature.toString())
+
+    //Getting all the information relative to the transaction that has been carried out
     const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
+
+    /* Getting the Return Log from the transaction information in order to get the boolean returned from the SC (Rust) function
+     * 'buffer' contains the raw binary information of the return, which contains the information of the boolean returned by the tested method
+    */
     const [key, data, buffer] = getReturnLog(transaction);
-    const accountWallet2 = await fetchProfessorAccount(program, wallet2.publicKey);
+    const reader_U8 = new Borsh.BinaryReader(buffer).readU8;
+    const program_return = Boolean(reader_U8);
 
+    //Fetching the data of the new account created through its PDA
+    const newProfessorAccount = await fetchProfessorAccount(program, wallet2.publicKey);
 
-    expect(new anchor.BN(accountWallet2.id).eq(new anchor.BN(idExpected))).to.be.true;
-    assert.equal(accountWallet2.identifierCodeHash, CryptoJS.SHA256("2222").toString());
-    expect(Boolean(buffer)).to.be.true;
+    //The ID of the new Professor Account must be equal to the idExpected param (which is the ID provided by the ID's generator for Professor)
+    expect(new anchor.BN(newProfessorAccount.id).eq(new anchor.BN(idExpected))).to.be.true;
+
+    //The identifierCode hash must be equal to the sha256 hash of '1111' (which is the identifier of every Professor to have certain privileges)
+    assert.equal(newProfessorAccount.identifierCodeHash, CryptoJS.SHA256("2222").toString());
+
+    //The program must return true if everything is correct
+    expect(program_return).to.be.true;
 
   });
 
   it("Reinitializing the same professor with different ID...", async () => {
 
+    /**
+     * Trying to initialize a new Professor Account for the same wallet --> 
+     * Since the PDA (address) is calculated through the wallet's PublicKey, the PDA will result in the same than the previous initialization
+     * This will raise up an error due to the constraint init, which cannot init an account with an address which is already initializated
+     */
     try {
       await initializeProfessor(program, wallet2);
     } catch (err) {
@@ -511,12 +571,19 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
       return;
     }
 
+    //The test is expecting an error, so it will fail if an error is not raised
     assert.fail("Expected an error to be thrown");
 
   });
 
   it("Student is initializated properly", async () => {
 
+    
+     /*
+     * Check if ID's generator for Student accounts exist --> 
+     * If so, the smaller ID available is obtained from it 
+     * If not, the new ID will be 0 since no ID's generator created implies no Professor Acccount has been created previously
+    */
     var idExpected = 0;
     try {
       let studentIdGeneratorBefore = await fetchIdAccount(program, "student");
@@ -524,29 +591,58 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     } catch (err) {
       assert.instanceOf(err, Error);
     }
-    const newIdAvailable = idExpected + 1;
 
-    const signature = await initializeStudent(program, wallet3);
-    await connection.confirmTransaction(signature.toString())
-    const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
-    const [key, data, buffer] = getReturnLog(transaction);
-    const accountWallet3 = await fetchStudentAccount(program, wallet3.publicKey);
+     //The new ID that should be available in the ID's generator after creating the new Professor account
+     const newIdAvailable = idExpected + 1
 
-    const studentIdGeneratorAfter = await fetchIdAccount(program, "student");
+     //Initializing StudentAccount and getting the signature of the transaction
+     const signature = await initializeStudent(program, wallet3);
+ 
+     //Confirming the previous transaction in the validator node
+     await connection.confirmTransaction(signature.toString())
+ 
+     //Getting all the information relative to the transaction that has been carried out
+     const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
+ 
+     /* Getting the Return Log from the transaction information in order to get the boolean returned from the SC (Rust) function
+      * 'buffer' contains the raw binary information of the return, which contains the information of the boolean returned by the tested method
+     */
+     const [key, data, buffer] = getReturnLog(transaction);
+     const reader_U8 = new Borsh.BinaryReader(buffer).readU8;
+     const program_return = Boolean(reader_U8);
 
-    expect(new anchor.BN(accountWallet3.id).eq(new anchor.BN(idExpected))).to.be.true;
-    expect(new anchor.BN(studentIdGeneratorAfter.smallerIdAvailable).eq(new anchor.BN(newIdAvailable))).to.be.true;
-    assert.equal(accountWallet3.identifierCodeHash, CryptoJS.SHA256("3333").toString());
-    expect(Boolean(buffer)).to.be.true;
+    //Fetching the data of the new account created through its PDA
+    const newStudentAccount = await fetchStudentAccount(program, wallet3.publicKey);
 
+    //Getting the data of the Student ID's generator
+    const studentIdGeneratorAfterCreating = await fetchIdAccount(program, "student");
+
+     //The ID of the new Student Account must be equal to the idExpected param (which is the ID provided by the ID's generator for Students)
+    expect(new anchor.BN(newStudentAccount.id).eq(new anchor.BN(idExpected))).to.be.true;
+
+    // The new smaller availabled ID on the ID's generator must be equal to the param newIdAvailable (i.e. the new id available must have been incremented in +1)
+    expect(new anchor.BN(studentIdGeneratorAfterCreating.smallerIdAvailable).eq(new anchor.BN(newIdAvailable))).to.be.true;
+
+    //The identifierCode hash must be equal to the sha256 hash of '1111' (which is the identifier of every highRank to have certain privileges)
+    assert.equal(newStudentAccount.identifierCodeHash, CryptoJS.SHA256("3333").toString());
+
+   //The program must return true if everything is correct
+    expect(program_return).to.be.true;
   });
 
   it("Faculty is properly initializated", async () => {
 
-    getExtraFunds(connection, 50, wallet1) //wallet1 is allowed by a HighRank
+    //Giving extra funds (SOL) to wallet1 (which is allowed by a HighRank user)
+    getExtraFunds(connection, 50, wallet1) 
+
     var correct = true;
     var idExpected = 0;
 
+    /*
+     * Check if ID's generator for HighRank accounts exist --> 
+     * If so, the smaller ID available is obtained from it and saved in 'idExpected'
+     * If not, the new ID will be 0 since no ID's generator created implies no HighRank Account has been created previously
+    */
     try {
       const account = await fetchIdAccount(program, "faculty");
       idExpected = account.smallerIdAvailable
@@ -556,20 +652,44 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
       correct = false;
     }
 
+    /*
+    * IdGenerator must be generated independently (unlike user's ID's generators) if it does not exist yet
+    */
     if (!correct) {
       await initializeIdGenerator(program, wallet1, "faculty")
     }
 
-    const signature = await initializeFaculty(program, wallet1, idExpected, "Asignatura de prueba")
-    await connection.confirmTransaction(signature.toString())
-    const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
-    const [key, data, buffer] = getReturnLog(transaction);
-    const accountWallet = await fetchFacultyAccount(program, idExpected);
-    const idGeneratorAccount = await fetchIdAccount(program, "faculty");
 
-    expect(new anchor.BN(accountWallet.id).eq(new anchor.BN(idExpected))).to.be.true;
-    expect(new anchor.BN(idGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected + 1))).to.be.true;
-    expect(Boolean(buffer)).to.be.true;
+    // Initializing FacultyAccount and getting the signature of the transaction
+    const signature = await initializeFaculty(program, wallet1, idExpected, "Asignatura de prueba")
+
+    //Confirming the previous transaction in the validator node
+    await connection.confirmTransaction(signature.toString())
+
+    //Getting all the information relative to the transaction that has been carried out
+    const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
+
+  /* Getting the Return Log from the transaction information in order to get the boolean returned from the SC (Rust) function
+   * 'buffer' contains the raw binary information of the return, which contains the information of the boolean returned by the tested method
+  */
+    const [key, data, buffer] = getReturnLog(transaction);
+    const reader_U8 = new Borsh.BinaryReader(buffer).readU8;
+    const program_return = Boolean(reader_U8);
+
+    //Fetching the data of the new account created through its PDA
+    const newFacultyAccount = await fetchFacultyAccount(program, idExpected);
+
+    //Getting the data of the Faculty ID's generator
+    const FacultyIdGeneratorAccount = await fetchIdAccount(program, "faculty");
+
+      //The ID of the new Faculty Account must be equal to the idExpected param (which is the ID provided by the ID's generator for Faculty)
+    expect(new anchor.BN(newFacultyAccount.id).eq(new anchor.BN(idExpected))).to.be.true;
+
+    // The new smaller availabled ID on the ID's generator must be equal to 'idExpected' incremented in +1)
+    expect(new anchor.BN(FacultyIdGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected + 1))).to.be.true;
+
+    // The program must return true if everything is correct
+    expect(program_return).to.be.true;
   });
 
 
@@ -596,12 +716,17 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     await connection.confirmTransaction(signature.toString())
     const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
     const [key, data, buffer] = getReturnLog(transaction);
-    const accountWallet = await fetchDegreeAccount(program, idExpected);
-    const idGeneratorAccount = await fetchIdAccount(program, "degree");
 
-    expect(new anchor.BN(accountWallet.id).eq(new anchor.BN(idExpected))).to.be.true;
-    expect(new anchor.BN(idGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected + 1))).to.be.true;
-    expect(Boolean(buffer)).to.be.true;
+    const newDegreeAccount = await fetchDegreeAccount(program, idExpected);
+    const degreeIdGeneratorAccount = await fetchIdAccount(program, "degree");
+
+    const reader_U8 = new Borsh.BinaryReader(buffer).readU8;
+    const program_return = Boolean(reader_U8);
+
+    expect(new anchor.BN(newDegreeAccount.id).eq(new anchor.BN(idExpected))).to.be.true;
+    expect(new anchor.BN(degreeIdGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected + 1))).to.be.true;
+    expect(program_return).to.be.true;
+
   });
 
   it("Specialty is properly initializated", async () => {
@@ -627,12 +752,18 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     await connection.confirmTransaction(signature.toString())
     const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
     const [key, data, buffer] = getReturnLog(transaction);
-    const accountWallet = await fetchSpecialtyAccount(program, idExpected);
-    const idGeneratorAccount = await fetchIdAccount(program, "specialty");
 
-    expect(new anchor.BN(accountWallet.id).eq(new anchor.BN(idExpected))).to.be.true;
-    expect(new anchor.BN(idGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected + 1))).to.be.true;
-    expect(Boolean(buffer)).to.be.true;
+    const newSpecialtyAccount = await fetchSpecialtyAccount(program, idExpected);
+    const degreeIdGeneratorAccount = await fetchIdAccount(program, "specialty");
+
+    const reader_U8 = new Borsh.BinaryReader(buffer).readU8;
+    const program_return = Boolean(reader_U8);
+
+
+    expect(new anchor.BN(newSpecialtyAccount.id).eq(new anchor.BN(idExpected))).to.be.true;
+    expect(new anchor.BN(degreeIdGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected + 1))).to.be.true;
+    expect(program_return).to.be.true;
+
   });
 
   it("Specialty with incorrect ID trying to be initializated", async () => {
@@ -654,6 +785,11 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
       await initializeIdGenerator(program, wallet1, "specialty")
     }
 
+    /*
+     * Account cannot be created since the provided ID is invalid (less than 0)
+     * One of the constraints in the SC must raise an error, which is expected to be an instance of Error 
+     * The error must also contain "A raw constraint was violated" as part of the message
+    */
     try {
       await initializeSpecialty(program, wallet1, idExpected, "Especialidad de prueba", -1)
     } catch (err) {
@@ -668,7 +804,7 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
 
   it("Subject is properly initializated", async () => {
 
-    //creating AUX professor
+    //creating a new aux professor
     const auxSignature = await initializeProfessor(program, wallet4);
     await connection.confirmTransaction(auxSignature.toString())
     const auxTransaction = await connection.getTransaction(auxSignature.toString(), { commitment: "confirmed" });
@@ -692,21 +828,31 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     }
 
 
-    // Due to a previous test --> there will always be a professor with ID '0' 
-
+    /* Due to a previous test --> there will always be a professor with ID '0' 
+     * The aux professor's id is passed as part of the array of professors' id via 'auxProfessorAccount.id'
+    */
     const signature = await initializeSubject(program, wallet1, idExpected, "Especialidad de prueba", 0, 0, { first:{} }, [0, Number(auxProfessorAccount.id)], [0])
     await connection.confirmTransaction(signature.toString())
     const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
     const [key, data, buffer] = getReturnLog(transaction);
-    const accountWallet = await fetchSubjectAccount(program, idExpected);
-    const idGeneratorAccount = await fetchIdAccount(program, "subject");
 
-    expect(new anchor.BN(accountWallet.id).eq(new anchor.BN(idExpected))).to.be.true;
-    expect(new anchor.BN(idGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected + 1))).to.be.true;
-    expect(new anchor.BN(accountWallet.degreeId).eq(new anchor.BN(0))).to.be.true;
-    expect(accountWallet.course).to.deep.equal( {first: {} } );                                                  // utilizamos deep para comparar el contenido real de los objetos y no la referencia a memoria (esto últ siempre daría false ya que son dos objetos diferentes)
-    expect(accountWallet.students).to.deep.equal( [0]);   
-    expect(Boolean(buffer)).to.be.true;
+    const newSubjectAccount = await fetchSubjectAccount(program, idExpected);
+    const subjectIdGeneratorAccount = await fetchIdAccount(program, "subject");
+
+    const reader_U8 = new Borsh.BinaryReader(buffer).readU8;
+    const program_return = Boolean(reader_U8);
+
+    expect(new anchor.BN(newSubjectAccount.id).eq(new anchor.BN(idExpected))).to.be.true;
+    expect(new anchor.BN(subjectIdGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected + 1))).to.be.true;
+    expect(new anchor.BN(newSubjectAccount.degreeId).eq(new anchor.BN(0))).to.be.true;
+
+    //'deep.equal' is used to compare the actual content of the objects and not the memory reference (which will be always false since the references cannot be the same)
+    
+    //Checking if the course is equal to SubjectCourse::First (enum in Rust)
+    expect(newSubjectAccount.course).to.deep.equal( {first: {} } );  
+
+    expect(newSubjectAccount.students).to.deep.equal( [0]);   
+    expect(program_return).to.be.true;
   });
 
   it("Subject is initializated with incorrect professor ID", async () => {
@@ -763,18 +909,32 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     await connection.confirmTransaction(signature.toString())
     const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
     const [key, data, buffer] = getReturnLog(transaction);
-    const accountWallet = await fetchProposalAccount(program, idExpected);
-    const idGeneratorAccount = await fetchIdAccount(program, "proposal");
-    const studentAccount = await fetchStudentAccount (program, wallet3.publicKey)
-    const subjectAccount = await fetchSubjectAccount(program, accountWallet.subjectId)
 
-    expect(new anchor.BN(accountWallet.id).eq(new anchor.BN(idExpected))).to.be.true;
-    expect(new anchor.BN(idGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected + 1))).to.be.true;
-    expect(new anchor.BN(accountWallet.subjectId).eq(new anchor.BN(0))).to.be.true;
-    expect(Number(accountWallet.publishingTimestamp) + 2592000).eq(Number(accountWallet.endingTimestamp));    
-    expect(new anchor.BN(studentAccount.id).eq(new anchor.BN(accountWallet.creatorId))).to.be.true;     
-    expect(new anchor.BN(accountWallet.expectedVotes).eq(new anchor.BN(subjectAccount.students.length + subjectAccount.professors.length + 20)))                                     
-    expect(Boolean(buffer)).to.be.true;
+    const newProposalAccount = await fetchProposalAccount(program, idExpected);
+    const proposalIdGeneratorAccount = await fetchIdAccount(program, "proposal");
+    const studentAccount = await fetchStudentAccount (program, wallet3.publicKey)
+    const subjectAccount = await fetchSubjectAccount(program, newProposalAccount .subjectId)
+
+    const reader_U8 = new Borsh.BinaryReader(buffer).readU8;
+    const program_return = Boolean(reader_U8);
+
+    expect(new anchor.BN(newProposalAccount.id).eq(new anchor.BN(idExpected))).to.be.true;
+    expect(new anchor.BN(proposalIdGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected + 1))).to.be.true;
+
+    //Checking that the subjectId of the proposal is correct (the subject that the proposal is derived from)
+    expect(new anchor.BN(newProposalAccount.subjectId).eq(new anchor.BN(0))).to.be.true;
+
+    //The ending_timestamp field must be equal to the publishingTimestamp plus 1 month (duration of the proposal) which is equal to 2592000 seconds in Unix Timestamp format
+    expect(Number(newProposalAccount .publishingTimestamp) + 2592000).eq(Number(newProposalAccount .endingTimestamp)); 
+    
+    //The ID of the creator (sender) of the transaction must be properly registered in the field creatorId in the proposal
+    expect(new anchor.BN(studentAccount.id).eq(new anchor.BN(newProposalAccount.creatorId))).to.be.true;   
+     
+    //The expected votes (as established in the SC) must be equal to the amount of professors and students that owe the subject
+    //20 votes are added in order to bear in mind the votes of professionals that are not registered in the subjects neither as students nor as professors
+    expect(new anchor.BN(newProposalAccount .expectedVotes).eq(new anchor.BN(subjectAccount.students.length + subjectAccount.professors.length + 20)))      
+
+    expect(program_return).to.be.true;
   });
 
   it("Proposal is created properly by Professor", async () => {
@@ -800,18 +960,23 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     await connection.confirmTransaction(signature.toString())
     const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
     const [key, data, buffer] = getReturnLog(transaction);
-    const accountWallet = await fetchProposalAccount(program, idExpected);
-    const idGeneratorAccount = await fetchIdAccount(program, "proposal");
-    const professorAccount = await fetchProfessorAccount (program, wallet2.publicKey)
-    const subjectAccount = await fetchSubjectAccount(program, accountWallet.subjectId)
 
-    expect(new anchor.BN(accountWallet.id).eq(new anchor.BN(idExpected))).to.be.true;
-    expect(new anchor.BN(idGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected + 1))).to.be.true;
-    expect(new anchor.BN(accountWallet.subjectId).eq(new anchor.BN(0))).to.be.true;
-    expect(Number(accountWallet.publishingTimestamp) + 2592000).eq(Number(accountWallet.endingTimestamp));    
-    expect(new anchor.BN(professorAccount.id).eq(new anchor.BN(accountWallet.creatorId))).to.be.true;  
-    expect(new anchor.BN(accountWallet.expectedVotes).eq(new anchor.BN(subjectAccount.students.length + subjectAccount.professors.length + 20))).to.be.true;                                     
-    expect(Boolean(buffer)).to.be.true;
+    const newProposalAccount = await fetchProposalAccount(program, idExpected);
+    const proposalIdGeneratorAccount = await fetchIdAccount(program, "proposal");
+    const professorAccount = await fetchProfessorAccount (program, wallet2.publicKey)
+    const subjectAccount = await fetchSubjectAccount(program, newProposalAccount.subjectId)
+
+    const reader_U8 = new Borsh.BinaryReader(buffer).readU8;
+    const program_return = Boolean(reader_U8);
+
+    //Exactly the same verifications than the creation of proposal by an student
+    expect(new anchor.BN(newProposalAccount.id).eq(new anchor.BN(idExpected))).to.be.true;
+    expect(new anchor.BN(proposalIdGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected + 1))).to.be.true;
+    expect(new anchor.BN(newProposalAccount.subjectId).eq(new anchor.BN(0))).to.be.true;
+    expect(Number(newProposalAccount.publishingTimestamp) + 2592000).eq(Number(newProposalAccount.endingTimestamp));    
+    expect(new anchor.BN(professorAccount.id).eq(new anchor.BN(newProposalAccount.creatorId))).to.be.true;  
+    expect(new anchor.BN(newProposalAccount.expectedVotes).eq(new anchor.BN(subjectAccount.students.length + subjectAccount.professors.length + 20))).to.be.true;                                     
+    expect(program_return).to.be.true;
   });
 
   it ("Proposal is properly voted by a student", async () => {
@@ -836,14 +1001,11 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta Correcta", "Desarollo o contenido de la propuesta de prueba correcta", 0)
     await connection.confirmTransaction(signature.toString())
     const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
-    console.log(transaction.transaction, transaction.meta)
     const [key, data, buffer] = getReturnLog(transaction);
     const proposalAccount = await fetchProposalAccount(program, idExpected);
     const idGeneratorAccount = await fetchIdAccount(program, "proposal");
     const studentAccount = await fetchStudentAccount (program, wallet3.publicKey)
-   
-    const reader = new Borsh.BinaryReader(buffer);
-    console.log(reader)
+
 
     expect(new anchor.BN(proposalAccount.id).eq(new anchor.BN(idExpected))).to.be.true;
     expect(new anchor.BN(idGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected + 1))).to.be.true;
@@ -913,5 +1075,56 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     assert.fail("Expected an error to be thrown");
 
   });
+
+  it ("Trying to get return log", async() => {
+
+    getExtraFunds(connection, 50, wallet3) // wallet3 is allowed by a Student
+    var correct = true;
+    var idExpected = 0;
+
+    try {
+      const account = await fetchIdAccount(program, "proposal");
+      idExpected = account.smallerIdAvailable
+    } catch (err) {
+      assert.instanceOf(err, Error);
+      assert.include(err.toString(), "Account does not exist");
+      correct = false;
+    }
+
+    if (!correct) {
+      await initializeIdGenerator(program, wallet3, "proposal")
+    }
+
+
+
+    const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta Correcta", "Desarollo o contenido de la propuesta de prueba correcta", 0)
+
+
+    const result = await connection.confirmTransaction(signature.toString())
+
+
+    const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
+
+   
+
+
+
+    const [key, data, buffer] = getReturnLog(transaction);
+
+    const reader = new Borsh.BinaryReader(buffer);
+    console.log(reader.readU32());
+
+    const proposalAccount = await fetchProposalAccount(program, idExpected);
+
+    const idGeneratorAccount = await fetchIdAccount(program, "proposal");
+
+    const studentAccount = await fetchStudentAccount (program, wallet3.publicKey)
+
+
+  
+
+  });
+
+ 
 
 });

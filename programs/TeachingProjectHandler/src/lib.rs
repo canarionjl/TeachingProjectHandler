@@ -53,7 +53,7 @@ pub mod teaching_project_handler {
         degree_account.name = name;
         degree_account.faculty_id = faculty_id;
 
-        Ok(true)
+        Ok(false)
     }
 
     pub fn create_specialty (ctx: Context<CreateSpecialty>, name:String, degree_id: i32) -> Result<bool> {
@@ -97,7 +97,7 @@ pub mod teaching_project_handler {
 
     }
 
-    pub fn create_proposal_by_student(ctx: Context<CreateProposalByStudent>, title:String, content:String) -> Result<bool> {
+    pub fn create_proposal_by_student(ctx: Context<CreateProposalByStudent>, title:String, content:String) -> Result<u32> {
 
         let proposal_account = &mut *ctx.accounts.proposal_account;
         let subject_account = &mut *ctx.accounts.subject_account;
@@ -121,7 +121,8 @@ pub mod teaching_project_handler {
        proposal_account.expected_votes = (subject_account.students.len() + subject_account.professors.len()) as u32 + 20;
 
 
-        Ok(true)
+        Ok(200)
+
     }
 
     pub fn create_proposal_by_professor(ctx: Context<CreateProposalByProfessor>, title:String, content:String) -> Result<bool> {
