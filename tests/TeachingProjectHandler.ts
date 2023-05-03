@@ -4,10 +4,11 @@ import { TeachingProjectHandler } from "../target/types/teaching_project_handler
 import chai, { assert } from "chai";
 import { expect } from "chai";
 import chaiAsPromised from "chai-as-promised";
-import * as CryptoJS from 'crypto-js';
+import CryptoJS from 'crypto-js';
 import * as Borsh from 'borsh';
 import { utf8 } from "@project-serum/anchor/dist/cjs/utils/bytes";
 import { ConfirmOptions } from "@solana/web3.js";
+
 
 
 chai.use(chaiAsPromised);
@@ -283,8 +284,6 @@ const initializeProposalByProfessor = async (program: Program<TeachingProjectHan
   return result;
 }
 
-
-
 const getAllAccountsByAuthority = async (accounts: anchor.AccountClient<TeachingProjectHandler>, authority: anchor.web3.PublicKey) => {
   return await accounts.all([
     {
@@ -403,7 +402,6 @@ const fetchProposalAccount = async (program: Program<TeachingProjectHandler>, id
   return await program.account.proposal.fetch(await findPDAforProposal(program.programId, id))
 }
 
-
 const fetchIdAccount = async (program: Program<TeachingProjectHandler>, account_info: string) => {
   return await program.account.idHandler.fetch(await findPDAforIdGenerator(program.programId, account_info))
 }
@@ -417,6 +415,16 @@ const getReturnLog = (confirmedTransaction) => {
   const [key, data] = log.split(" ", 2);
   const buffer = Buffer.from(data, "base64");
   return [key, data, buffer];
+};
+
+const getEmittedLog = (confirmedTransaction) => {
+  const prefix = "Program data: ";
+  let log = confirmedTransaction.meta.logMessages.find((log) =>
+    log.startsWith(prefix)
+  );
+  log = log.slice(prefix.length);
+  const buffer = Buffer.from(log, "base64");
+  return [log, buffer];
 };
 
 function numberToLEBytes(number) {
@@ -442,6 +450,7 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
   let wallet2: anchor.web3.Keypair;
   let wallet3: anchor.web3.Keypair;
   let wallet4: anchor.web3.Keypair;
+  let alternativeWallet: anchor.web3.Keypair;
 
 
   before(async () => {
@@ -985,6 +994,8 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     var correct = true;
     var idExpected = 0;
 
+
+    //Creating new proposal (just exactly the previous tests)
     try {
       const account = await fetchIdAccount(program, "proposal");
       idExpected = account.smallerIdAvailable
@@ -1000,29 +1011,36 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
 
     const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta Correcta", "Desarollo o contenido de la propuesta de prueba correcta", 0)
     await connection.confirmTransaction(signature.toString())
-    const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
-    const [key, data, buffer] = getReturnLog(transaction);
+   
+  
+    //Fetching the proposal account before voting
     const proposalAccount = await fetchProposalAccount(program, idExpected);
-    const idGeneratorAccount = await fetchIdAccount(program, "proposal");
-    const studentAccount = await fetchStudentAccount (program, wallet3.publicKey)
-
-
-    expect(new anchor.BN(proposalAccount.id).eq(new anchor.BN(idExpected))).to.be.true;
-    expect(new anchor.BN(idGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected + 1))).to.be.true;
-    expect(new anchor.BN(proposalAccount.subjectId).eq(new anchor.BN(0))).to.be.true;
-    expect(Number(proposalAccount.publishingTimestamp) + 2592000).eq(Number(proposalAccount.endingTimestamp));    
-    expect(new anchor.BN(studentAccount.id).eq(new anchor.BN(proposalAccount.creatorId))).to.be.true;                                          
 
 
     //the creator is going to vote 'true' over the proposal
     const vote_signature = await voteProposalByStudent(program, wallet3, Number(proposalAccount.id), Number(proposalAccount.subjectId), true)
-    await connection.confirmTransaction(signature.toString())
-    const vote_transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
-    const [vote_key, vote_data, vote_buffer] = getReturnLog(transaction);
+    await connection.confirmTransaction(vote_signature.toString())
+    const transaction = await connection.getTransaction(vote_signature.toString(), { commitment: "confirmed" });
+
+    //Getting the Program Return
+    const [key, data, buffer] = getReturnLog(transaction);
+    const program_return = new Borsh.BinaryReader(buffer).readString();
+  
+
+    // const program_return = TypeDef(reader_U8);
+
+
+    //Fetching the proposal account after voting
     const proposalAccountAfterVoting = await fetchProposalAccount(program, idExpected);
 
+    //The creator is voting in favor of the proposal, so the supporting_votes field must be incremented in +1
     expect(new anchor.BN(proposalAccount.supportingVotes + 1).eq(new anchor.BN(proposalAccountAfterVoting.supportingVotes))).to.be.true;
+
+    //The against_votes field must remain equal (i.e. with value 0)
     expect(new anchor.BN(proposalAccount.againstVotes).eq(new anchor.BN(proposalAccountAfterVoting.againstVotes))).to.be.true;
+
+    //After voting, the votation must continue being 'VotationInProgress'
+    expect(program_return).to.deep.equal("VotationInProgress")
   
   })
 
@@ -1046,19 +1064,8 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     }
 
     const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta Correcta", "Desarollo o contenido de la propuesta de prueba correcta", 0)
-    await connection.confirmTransaction(signature.toString())
-    const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
-    const [key, data, buffer] = getReturnLog(transaction);
     const proposalAccount = await fetchProposalAccount(program, idExpected);
-    const idGeneratorAccount = await fetchIdAccount(program, "proposal");
-    const studentAccount = await fetchStudentAccount (program, wallet3.publicKey)
-
-    expect(new anchor.BN(proposalAccount.id).eq(new anchor.BN(idExpected))).to.be.true;
-    expect(new anchor.BN(idGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected + 1))).to.be.true;
-    expect(new anchor.BN(proposalAccount.subjectId).eq(new anchor.BN(0))).to.be.true;
-    expect(Number(proposalAccount.publishingTimestamp) + 2592000).eq(Number(proposalAccount.endingTimestamp));    
-    expect(new anchor.BN(studentAccount.id).eq(new anchor.BN(proposalAccount.creatorId))).to.be.true;                                          
-    expect(Boolean(buffer)).to.be.true;
+   
 
     //the creator is going to vote 'true' over the proposal
     await voteProposalByStudent(program, wallet3, Number(proposalAccount.id), Number(proposalAccount.subjectId), true)
@@ -1076,12 +1083,13 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
 
   });
 
-  it ("Trying to get return log", async() => {
+  it ("Forcing the test to finalize (reaching the number of expecting votes) and voting true ", async () => {
 
     getExtraFunds(connection, 50, wallet3) // wallet3 is allowed by a Student
     var correct = true;
     var idExpected = 0;
 
+    //Creating new proposal (just exactly as the previous tests)
     try {
       const account = await fetchIdAccount(program, "proposal");
       idExpected = account.smallerIdAvailable
@@ -1095,36 +1103,107 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
       await initializeIdGenerator(program, wallet3, "proposal")
     }
 
-
-
     const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta Correcta", "Desarollo o contenido de la propuesta de prueba correcta", 0)
-
-
-    const result = await connection.confirmTransaction(signature.toString())
-
-
-    const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
-
-   
-
-
-
-    const [key, data, buffer] = getReturnLog(transaction);
-
-    const reader = new Borsh.BinaryReader(buffer);
-    console.log(reader.readU32());
-
-    const proposalAccount = await fetchProposalAccount(program, idExpected);
-
-    const idGeneratorAccount = await fetchIdAccount(program, "proposal");
-
-    const studentAccount = await fetchStudentAccount (program, wallet3.publicKey)
-
+    await connection.confirmTransaction(signature.toString())
 
   
+    //Fetching the proposal account before voting
+    const proposalAccountBeforeVoting = await fetchProposalAccount(program, idExpected);
 
+    //Geting the number of professor and students from the subject that the proposal allows to
+    const subjectAccount = await fetchSubjectAccount(program, proposalAccountBeforeVoting.subjectId);
+    const number_of_votes_expected = Number(subjectAccount.professors.length + subjectAccount.students.length + 20)
+
+    //Subscribing to the event emitted when the votation is finished and accepted 
+    let event_emitted: any;
+    program.addEventListener("NewProfessorProposalCreated", (event, _slot, _signature) => {event_emitted = event} )
+    
+    
+    //We create students to vote in favor until the number of votes expected is reached and the votation is forced to finalize
+    let vote_signature: String;
+    for (var i=0; i<number_of_votes_expected; i++) {
+      alternativeWallet = await createWallet(connection, 10);
+      await initializeStudent (program, alternativeWallet)
+      vote_signature = await voteProposalByStudent(program, alternativeWallet, Number(proposalAccountBeforeVoting.id), Number(proposalAccountBeforeVoting.subjectId), true)
+      await connection.confirmTransaction(vote_signature.toString())
+   
+  }
+
+  //Fetching the proposal account after voting
+  const proposalAccountAfterVoting = await fetchProposalAccount(program, idExpected);
+
+  expect(new anchor.BN(proposalAccountAfterVoting.againstVotes + proposalAccountAfterVoting.supportingVotes).eq(new anchor.BN(number_of_votes_expected))).to.be.true;
+  
+    //Getting the Program Return
+    const lastVotingTransaction = await connection.getTransaction(vote_signature.toString(), { commitment: "confirmed" });
+    const [key, data, buffer] = getReturnLog(lastVotingTransaction);
+    const program_return = new Borsh.BinaryReader(buffer).readString();
+  
+    //After completing the voting process, the votation must continue being 'WaitingForTeacher' since all students voted 'true' (supporting the proposal)
+    expect(program_return).to.deep.equal("WaitingForTeacher")
+
+   
+    //Checking the result emitted is correct
+    expect(event_emitted).to.deep.equal({ proposalId: proposalAccountAfterVoting.id } )
   });
 
+  it ("Forcing the test to finalize (reaching the number of expecting votes) and voting false", async () => {
+    
+    getExtraFunds(connection, 50, wallet3) // wallet3 is allowed by a Student
+    var correct = true;
+    var idExpected = 0;
+
+    //Creating new proposal (just exactly as the previous tests)
+    try {
+      const account = await fetchIdAccount(program, "proposal");
+      idExpected = account.smallerIdAvailable
+    } catch (err) {
+      assert.instanceOf(err, Error);
+      assert.include(err.toString(), "Account does not exist");
+      correct = false;
+    }
+
+    if (!correct) {
+      await initializeIdGenerator(program, wallet3, "proposal")
+    }
+
+    const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta Correcta", "Desarollo o contenido de la propuesta de prueba correcta", 0)
+    await connection.confirmTransaction(signature.toString())
+
+  
+    //Fetching the proposal account before voting
+    const proposalAccountBeforeVoting = await fetchProposalAccount(program, idExpected);
+
+    //Geting the number of professor and students from the subject that the proposal allows to
+    const subjectAccount = await fetchSubjectAccount(program, proposalAccountBeforeVoting.subjectId);
+    const number_of_votes_expected = Number(subjectAccount.professors.length + subjectAccount.students.length + 20)
+    
+    
+    //We create students to vote in favor until the number of votes expected is reached and the votation is forced to finalize
+    let vote_signature: String;
+    for (var i=0; i<number_of_votes_expected; i++) {
+      alternativeWallet = await createWallet(connection, 10);
+      await initializeStudent (program, alternativeWallet)
+      vote_signature = await voteProposalByStudent(program, alternativeWallet, Number(proposalAccountBeforeVoting.id), Number(proposalAccountBeforeVoting.subjectId), false)
+      await connection.confirmTransaction(vote_signature.toString())
+  }
+
+  //Fetching the proposal account after voting
+  const proposalAccountAfterVoting = await fetchProposalAccount(program, idExpected);
+  expect(new anchor.BN(proposalAccountAfterVoting.againstVotes + proposalAccountAfterVoting.supportingVotes).eq(new anchor.BN(number_of_votes_expected))).to.be.true;
+  
+  
+    //Getting the Program Return
+    const lastVotingTransaction = await connection.getTransaction(vote_signature.toString(), { commitment: "confirmed" });
+    const [key, data, buffer] = getReturnLog(lastVotingTransaction);
+    const program_return = new Borsh.BinaryReader(buffer).readString();
+  
+    //After completing the voting process, the votation must continue being 'Rejecting' since all students voted 'false' (against the proposal)
+    expect(program_return).to.deep.equal("Rejected")
+  
+  });
+
+ 
  
 
 });
