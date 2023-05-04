@@ -257,12 +257,7 @@ pub mod teaching_project_handler {
 
 }
 
-
-
-
-
-
-                                                        // ------- AUX FUNCTIONS ------------- //
+                                                       // ------- AUX FUNCTIONS ------------- //
 
 fn general_id_generator (id_handler_account: &mut Account<IdHandler>) ->  i32 {
     let id: i32 = id_handler_account.smaller_id_available;
@@ -670,6 +665,7 @@ pub struct VoteProposalByProfessor <'info> {
     pub system_program: Program<'info, System>
 }
 
+
                                                 // -------------- ACCOUNTS (DATA STRUCTS) --------------------- //
 
 
@@ -744,6 +740,19 @@ degree_id: i32
 
 #[account]
 #[derive(Default)]
+pub struct Subject {
+name: String,
+id: i32,
+degree_id: i32,
+specialty_id: i32,
+course: SubjectCourse,
+students: Vec<i32>,
+professors: Vec<i32>,
+pending_proposals: Vec<i32>
+}
+
+#[account]
+#[derive(Default)]
 pub struct Proposal {
     students_that_have_voted: Vec<i32>,          // Suponiendo 2.500 votos --> students + professors deben sumar 2500 id's ==> 2500 * 4 B (32 bits) = 10000 bytes = 10 KB
     professors_that_have_voted: Vec<i32>,
@@ -761,19 +770,6 @@ pub struct Proposal {
     updated_by_teacher: bool,
     high_rank_validation: bool,
     state: ProposalState
-}
-
-#[account]
-#[derive(Default)]
-pub struct Subject {
-name: String,
-id: i32,
-degree_id: i32,
-specialty_id: i32,
-course: SubjectCourse,
-students: Vec<i32>,
-professors: Vec<i32>,
-pending_proposals: Vec<i32>
 }
 
 #[account]

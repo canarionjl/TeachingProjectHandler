@@ -217,6 +217,7 @@ const voteProposalByStudent = async (program: Program<TeachingProjectHandler>, a
   const subject_id_generator_pda = await findPDAforIdGenerator(program.programId, "subject")
   const student_pda = await findPDAforStudent(program.programId, authority.publicKey)
   const proposal_pda = await findPDAforProposal(program.programId, proposal_id)
+  const id_professor_generator_pda = await findPDAforIdGenerator(program.programId, "professorProposal")
 
   const result = await program.methods.voteProposalByStudent(vote)
     .accounts({
@@ -224,7 +225,8 @@ const voteProposalByStudent = async (program: Program<TeachingProjectHandler>, a
       votingStudent: student_pda,
       subjectIdHandler: subject_id_generator_pda,
       proposalAccount: proposal_pda,
-      subjectAccount: subject_pda
+      subjectAccount: subject_pda,
+      professorProposalIdHandler: id_professor_generator_pda
     })
     .signers([authority])
     .rpc(confirmOptions);
@@ -1142,9 +1144,13 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     //After completing the voting process, the votation must continue being 'WaitingForTeacher' since all students voted 'true' (supporting the proposal)
     expect(program_return).to.deep.equal("WaitingForTeacher")
 
+    //fetching the professorProposalIdHandler
+    const professorProposalIdHandler = await fetchIdAccount(program, "professorProposal");
+    const idExpectedFromProfessorProposal = Number(professorProposalIdHandler.smallerIdAvailable - 1)
+
    
     //Checking the result emitted is correct
-    expect(event_emitted).to.deep.equal({ proposalId: proposalAccountAfterVoting.id } )
+    expect(event_emitted).to.deep.equal({ proposalId: proposalAccountAfterVoting.id, professorProposalId:idExpectedFromProfessorProposal } )
   });
 
   it ("Forcing the test to finalize (reaching the number of expecting votes) and voting false", async () => {
