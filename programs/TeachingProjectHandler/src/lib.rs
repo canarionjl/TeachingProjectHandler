@@ -102,10 +102,12 @@ pub mod teaching_project_handler {
 
         let proposal_account = &mut *ctx.accounts.proposal_account;
         let subject_account = &mut *ctx.accounts.subject_account;
+        let associated_professor_proposal_account = &mut *ctx.accounts.professor_proposal_account;
 
         proposal_account.title = title;
         proposal_account.content = content;
         proposal_account.subject_id = subject_account.id;
+        
 
         subject_account.pending_proposals.push(proposal_account.id);
 
@@ -121,7 +123,16 @@ pub mod teaching_project_handler {
         proposal_account.high_rank_validation = false;
         proposal_account.updated_by_teacher = false;
 
-       proposal_account.expected_votes = (subject_account.students.len() + subject_account.professors.len()) as u32 + 20;
+        proposal_account.expected_votes = (subject_account.students.len() + subject_account.professors.len()) as u32 + 20;
+
+        //Initializating associated professor_proposal_account for possible future uses
+        associated_professor_proposal_account.id = general_id_generator(&mut ctx.accounts.professor_proposal_id_handler);
+        associated_professor_proposal_account.original_proposal_id = proposal_account.id;
+        associated_professor_proposal_account.name = proposal_account.title.clone();
+
+        proposal_account.associated_professor_proposal_id = associated_professor_proposal_account.id;
+
+        emit! (NewProposalCreated {proposal_id: proposal_account.id , subject_id: proposal_account.subject_id});
 
 
         Ok(true)
@@ -132,6 +143,7 @@ pub mod teaching_project_handler {
 
         let proposal_account = &mut *ctx.accounts.proposal_account;
         let subject_account = &mut *ctx.accounts.subject_account;
+        let associated_professor_proposal_account = &mut *ctx.accounts.professor_proposal_account;
 
         proposal_account.title = title;
         proposal_account.content = content;
@@ -153,6 +165,15 @@ pub mod teaching_project_handler {
 
         proposal_account.expected_votes = (subject_account.students.len() + subject_account.professors.len()) as u32 + 20;
 
+        //Initializating associated professor_proposal_account for possible future uses
+        associated_professor_proposal_account.id = general_id_generator(&mut ctx.accounts.professor_proposal_id_handler);
+        associated_professor_proposal_account.original_proposal_id = proposal_account.id;
+        associated_professor_proposal_account.name = proposal_account.title.clone();
+
+        proposal_account.associated_professor_proposal_id = associated_professor_proposal_account.id;
+
+        emit! (NewProposalCreated {proposal_id: proposal_account.id , subject_id: proposal_account.subject_id});
+
         Ok(true)
 
     }
@@ -161,45 +182,59 @@ pub mod teaching_project_handler {
 
         let proposal_account = &mut *ctx.accounts.proposal_account;
         let student_account = &mut *ctx.accounts.voting_student;
+        let professor_proposal_account = &mut *ctx.accounts.professor_proposal_account;
 
-    // Evaluating if student has already voted
-    for student_id in &(proposal_account.students_that_have_voted) {
-        if student_id.clone() == student_account.id {
-            return Err(error!(ErrorCode::UserHasAlreadyVoted));
+        // Evaluating if student has already voted
+        for student_id in &(proposal_account.students_that_have_voted) {
+            if student_id.clone() == student_account.id {
+                return Err(error!(ErrorCode::UserHasAlreadyVoted));
+            }
         }
-    }
 
-    // Evaluating if Votation is open --> if so, new vote is registered 
-        if votation_is_open(proposal_account.ending_timestamp) {
+        let votation_is_open = votation_is_open(proposal_account.ending_timestamp);
+
+        // Evaluating if Votation is open --> if so, new vote is registered 
+        if votation_is_open {
             if vote == true {
                 proposal_account.supporting_votes = proposal_account.supporting_votes + 1;
             } else {
                 proposal_account.against_votes = proposal_account.against_votes + 1;
             }
             proposal_account.students_that_have_voted.push(student_account.id)
-       } else {
-            return Err(error!(ErrorCode::VotationIsNotOpen));
-       }
+       } 
 
-       proposal_account.state = ProposalState::VotationInProgress;
+       // Evaluating if the proposal has reached the minium participation (if so, if the proposal ended up in time or reached max. participation, it can be evaluated)
+        let mut proposal_must_be_evaluated: bool = false;
 
-    //Evaluating if the number of votes has reached 'expected_votes'
-        if proposal_account.supporting_votes + proposal_account.against_votes >= proposal_account.expected_votes {
+        if votation_is_open {
+            if proposal_has_reached_maximum_participation(proposal_account.supporting_votes, proposal_account.against_votes) {
+                proposal_must_be_evaluated = true
+            } else {
+                proposal_account.state = ProposalState::VotationInProgress
+            }
+        } else {
+            if proposal_has_reached_minimum_partitipation(proposal_account.supporting_votes,proposal_account.against_votes, proposal_account.expected_votes) {
+               proposal_must_be_evaluated = true;
+            } else {
+                proposal_account.state = ProposalState::Rejected
+            }
+        }
 
-            //Evaluate if proposal has reached agreement (positive result of votation)
+        if proposal_must_be_evaluated {
             if proposal_has_reached_agreement(proposal_account.supporting_votes, proposal_account.against_votes) {
                 proposal_account.state = ProposalState::WaitingForTeacher;
-                let professor_proposal_id: i32 = general_id_generator(&mut ctx.accounts.professor_proposal_id_handler);
-                emit! (NewProfessorProposalCreated {proposal_id: proposal_account.id , professor_proposal_id: professor_proposal_id});
+                let current_timestamp = Clock::get().unwrap().unix_timestamp;
+                initialize_professor_proposal_account(professor_proposal_account, current_timestamp, current_timestamp + 1209600 as i64);
+                emit! (NewProfessorProposalCreated {proposal_id: proposal_account.id , professor_proposal_id: professor_proposal_account.id});
             } else {
                 proposal_account.state = ProposalState::Rejected;
             }
         }
 
+       // If votation is not open, error is returned due to the student could not make his/her vote  
+       if !votation_is_open {return  Err(error!(ErrorCode::VotationIsNotOpen)) }; 
+
        Ok(proposal_account.state.to_string()) 
-       
-       // if state is WaitingForTeacher --> a new ProfessorProposal must be created 
-       // Rejected Proposals must be deleted by HighRank
 
     }
 
@@ -207,45 +242,59 @@ pub mod teaching_project_handler {
 
         let proposal_account = &mut *ctx.accounts.proposal_account;
         let professor_account = &mut *ctx.accounts.voting_professor;
+        let professor_proposal_account = &mut *ctx.accounts.professor_proposal_account;
 
-    // Evaluating if student has already voted
-    for student_id in &(proposal_account.students_that_have_voted) {
-        if student_id.clone() == professor_account.id {
-            return Err(error!(ErrorCode::UserHasAlreadyVoted));
+        // Evaluating if student has already voted
+        for professor_id in &(proposal_account.students_that_have_voted) {
+            if professor_id.clone() == professor_account.id {
+                return Err(error!(ErrorCode::UserHasAlreadyVoted));
+            }
         }
-    }
 
-    // Evaluating if Votation is open --> if so, new vote is registered 
-        if votation_is_open(proposal_account.ending_timestamp) {
+        let votation_is_open = votation_is_open(proposal_account.ending_timestamp);
+
+        // Evaluating if Votation is open --> if so, new vote is registered 
+        if votation_is_open {
             if vote == true {
                 proposal_account.supporting_votes = proposal_account.supporting_votes + 1;
             } else {
                 proposal_account.against_votes = proposal_account.against_votes + 1;
             }
             proposal_account.professors_that_have_voted.push(professor_account.id)
-       } else {
-            return Err(error!(ErrorCode::VotationIsNotOpen));
-       }
+       } 
 
-       proposal_account.state = ProposalState::VotationInProgress;
+      // Evaluating if the proposal has reached the minium participation (if so, if the proposal ended up in time or reached max. participation, it can be evaluated)
+      let mut proposal_must_be_evaluated: bool = false;
 
-    //Evaluating if the number of votes has reached 'expected_votes'
-        if proposal_account.supporting_votes + proposal_account.against_votes >= proposal_account.expected_votes {
+      if votation_is_open {
+          if proposal_has_reached_maximum_participation(proposal_account.supporting_votes, proposal_account.against_votes) {
+              proposal_must_be_evaluated = true
+          } else {
+              proposal_account.state = ProposalState::VotationInProgress
+          }
+      } else {
+          if proposal_has_reached_minimum_partitipation(proposal_account.supporting_votes,proposal_account.against_votes, proposal_account.expected_votes) {
+             proposal_must_be_evaluated = true;
+          } else {
+              proposal_account.state = ProposalState::Rejected
+          }
+      }
 
-            //Evaluate if proposal has reached agreement (positive result of votation)
-            if proposal_has_reached_agreement(proposal_account.supporting_votes, proposal_account.against_votes) {
-                proposal_account.state = ProposalState::WaitingForTeacher;
-                let professor_proposal_id: i32 = general_id_generator(&mut ctx.accounts.professor_proposal_id_handler);
-                emit! (NewProfessorProposalCreated {proposal_id: proposal_account.id , professor_proposal_id: professor_proposal_id});
-            } else {
-                proposal_account.state = ProposalState::Rejected;
-            }
-        }
+      if proposal_must_be_evaluated {
+          if proposal_has_reached_agreement(proposal_account.supporting_votes, proposal_account.against_votes) {
+              proposal_account.state = ProposalState::WaitingForTeacher;
+              let current_timestamp = Clock::get().unwrap().unix_timestamp;
+              initialize_professor_proposal_account(professor_proposal_account, current_timestamp, current_timestamp + 1209600 as i64);
+              emit! (NewProfessorProposalCreated {proposal_id: proposal_account.id , professor_proposal_id: professor_proposal_account.id});
+          } else {
+              proposal_account.state = ProposalState::Rejected;
+          }
+      }
+
+       // If votation is not open, error is returned due to the student could not make his/her vote  
+       if !votation_is_open {return  Err(error!(ErrorCode::VotationIsNotOpen)) }; 
 
        Ok(proposal_account.state.to_string()) 
-       
-       // if state is WaitingForTeacher --> a new ProfessorProposal must be created 
-       // Rejected Proposals must be deleted by HighRank
 
     }
 
@@ -269,15 +318,25 @@ fn votation_is_open (ending_timestamp_of_votation: i64) -> bool {
     if Clock::get().unwrap().unix_timestamp < ending_timestamp_of_votation {true} else {false}
 }
 
+fn proposal_has_reached_minimum_partitipation(supporting_votes: u32, against_votes: u32, expected_votes: u32) -> bool {
+    return supporting_votes + against_votes >= expected_votes
+}
+
+fn proposal_has_reached_maximum_participation (supporting_votes: u32, against_votes: u32) -> bool {
+   return (supporting_votes + against_votes) >= 21 as u32
+}
+
 fn proposal_has_reached_agreement(supporting_votes: u32, against_votes: u32) -> bool {
     let total_votes: f32 = supporting_votes as f32 + against_votes as f32;
-
-    if (supporting_votes as f32 /total_votes) as f32 >= (2_f32/3_f32 as f32) {
-        true 
-    } else {
-        false
-    }
+    return (supporting_votes as f32) / (total_votes) as f32 >= (2_f32/3_f32 as f32) 
 }
+
+fn initialize_professor_proposal_account(professor_proposal_account: &mut ProfessorProposal, publishing_timestamp: i64, ending_timestamp: i64) {
+   professor_proposal_account.publishing_timestamp = publishing_timestamp;
+   professor_proposal_account.ending_timestamp = ending_timestamp;
+   professor_proposal_account.state = ProfessorProposalState::Pending;
+}
+
 
                           // --------- ACCOUNTS DATA STRUCTURES ('CONTEXT' PARAM IN  'teaching_project_handler' MOD FUNCTIONS) ----- 
 
@@ -523,6 +582,15 @@ pub struct CreateProposalByStudent <'info> {
 
     #[account(mut)]
     pub proposal_id_handler: Account<'info,IdHandler>,
+
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = size_of::<IdHandler>() + 140,
+        seeds = [b"professorProposalIdHandler"],
+        bump
+    )]
+    pub professor_proposal_id_handler: Account<'info, IdHandler>,
     
     #[account()]
     pub subject_id_handler: Account<'info,IdHandler>,
@@ -538,10 +606,18 @@ pub struct CreateProposalByStudent <'info> {
     )]
     pub proposal_account: Account<'info, Proposal>,
 
+    #[account(init,
+        payer = authority,
+        space = size_of::<ProfessorProposal>() + title.len() + 20,
+        seeds = [b"professorProposal", professor_proposal_id_handler.smaller_id_available.to_le_bytes().as_ref()],
+        bump,
+)]
+    pub professor_proposal_account: Account<'info, ProfessorProposal>,
+
     #[account(
         seeds = [b"subject", proposal_account.subject_id.to_le_bytes().as_ref()],
         bump,
-        constraint = proposal_account.subject_id > 0 || proposal_account.subject_id <= subject_id_handler.smaller_id_available
+        constraint = proposal_account.subject_id > 0 || proposal_account.subject_id < subject_id_handler.smaller_id_available
     )]
     pub subject_account: Account<'info, Subject>,
 
@@ -560,6 +636,15 @@ pub struct CreateProposalByProfessor <'info> {
 
     #[account(mut)]
     pub proposal_id_handler: Account<'info,IdHandler>,
+
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = size_of::<IdHandler>() + 140,
+        seeds = [b"professorProposalIdHandler"],
+        bump
+    )]
+    pub professor_proposal_id_handler: Account<'info, IdHandler>,
     
     #[account()]
     pub subject_id_handler: Account<'info,IdHandler>,
@@ -574,7 +659,15 @@ pub struct CreateProposalByProfessor <'info> {
     )]
     pub proposal_account: Account<'info, Proposal>,
 
-    
+    #[account(init,
+              payer = authority,
+              space = size_of::<ProfessorProposal>() + title.len() + 20,
+              seeds = [b"professorProposal", professor_proposal_id_handler.smaller_id_available.to_le_bytes().as_ref()],
+              bump,
+    )]
+    pub professor_proposal_account: Account<'info, ProfessorProposal>,
+
+
     #[account(
         seeds = [b"subject", proposal_account.subject_id.to_le_bytes().as_ref()],
         bump,
@@ -609,18 +702,21 @@ pub struct VoteProposalByStudent <'info> {
     #[account(
         seeds = [b"subject", proposal_account.subject_id.to_le_bytes().as_ref()],
         bump,
-        constraint =  proposal_account.subject_id <= subject_id_handler.smaller_id_available
+        constraint =  proposal_account.subject_id < subject_id_handler.smaller_id_available
     )]
     pub subject_account: Account<'info, Subject>,
 
-    #[account(
-        init_if_needed,
-        payer = authority,
-        space = size_of::<IdHandler>() + 140,
-        seeds = [b"professorProposalIdHandler"],
-        bump
-    )]
+    #[account(mut)]
     pub professor_proposal_id_handler: Account<'info, IdHandler>,
+
+    #[account(
+        mut,
+        seeds = [b"professorProposal", professor_proposal_account.id.to_le_bytes().as_ref()],
+        bump,
+        constraint = professor_proposal_account.original_proposal_id == proposal_account.id,
+        constraint = professor_proposal_account.id < professor_proposal_id_handler.smaller_id_available
+    )]
+    pub professor_proposal_account: Account<'info, ProfessorProposal>,
 
     pub system_program: Program<'info, System>
 }
@@ -649,18 +745,21 @@ pub struct VoteProposalByProfessor <'info> {
     #[account(
         seeds = [b"subject", proposal_account.subject_id.to_le_bytes().as_ref()],
         bump,
-        constraint =  proposal_account.subject_id <= subject_id_handler.smaller_id_available
+        constraint = proposal_account.subject_id < subject_id_handler.smaller_id_available
     )]
     pub subject_account: Account<'info, Subject>,
 
-    #[account(
-        init_if_needed,
-        payer = authority,
-        space = size_of::<IdHandler>() + 140,
-        seeds = [b"professorProposalIdHandler"],
-        bump
-    )]
+    #[account(mut)]
     pub professor_proposal_id_handler: Account<'info, IdHandler>,
+
+    #[account(
+        mut,
+        seeds = [b"professorProposal", professor_proposal_account.id.to_le_bytes().as_ref()],
+        bump,
+        constraint = professor_proposal_account.original_proposal_id == proposal_account.id,
+        constraint = professor_proposal_account.id < professor_proposal_id_handler.smaller_id_available
+    )]
+    pub professor_proposal_account: Account<'info, ProfessorProposal>,
 
     pub system_program: Program<'info, System>
 }
@@ -769,27 +868,20 @@ pub struct Proposal {
     ending_timestamp: i64,
     updated_by_teacher: bool,
     high_rank_validation: bool,
-    state: ProposalState
+    state: ProposalState,
+    associated_professor_proposal_id: i32
 }
 
 #[account]
 #[derive(Default)]
 pub struct ProfessorProposal {
-    id: i64,
-    original_proposal_id: i64,
+    id: i32,
+    original_proposal_id: i32,
     name: String,
     publishing_timestamp: i64,
     ending_timestamp: i64,
     state: ProfessorProposalState
 }
-
-#[account]
-#[derive(Default)]
-pub struct HighRankProposal {
-    id: i64,
-    professor_proposal_id: i64
-}
-
 
 
 
@@ -821,9 +913,9 @@ impl fmt::Display for ProposalState {
 #[derive(Default)]
 #[derive(AnchorSerialize,AnchorDeserialize,Copy,Clone)]
 pub enum ProfessorProposalState { 
-#[default]
-Pending,
-Complete
+    #[default]
+    Pending,
+    Complete
 }
 
 #[derive(Default)]
@@ -869,6 +961,13 @@ pub enum ErrorCode {
 
 
 //----------------Events-----------------//
+
+#[event]
+pub struct NewProposalCreated {
+    pub proposal_id: i32,
+    pub subject_id: i32
+}
+
 #[event]
 pub struct NewProfessorProposalCreated {
     pub proposal_id: i32,
