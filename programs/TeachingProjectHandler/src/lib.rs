@@ -10,6 +10,8 @@ pub mod teaching_project_handler {
 
     use super::*;
 
+    const ENDING_TIMESTAMP_OFFSET: i64 = 2592000;
+
     pub fn create_high_rank(ctx: Context<CreateHighRank>, user_type_code:String) -> Result<bool> {
         
         let high_rank_account = &mut *ctx.accounts.high_rank_account;
@@ -112,7 +114,7 @@ pub mod teaching_project_handler {
         subject_account.pending_proposals.push(proposal_account.id);
 
         proposal_account.publishing_timestamp = Clock::get().unwrap().unix_timestamp;
-        proposal_account.ending_timestamp = proposal_account.publishing_timestamp + 2592000 as i64;
+        proposal_account.ending_timestamp = proposal_account.publishing_timestamp + ENDING_TIMESTAMP_OFFSET as i64;
 
         let creator_account = &mut *ctx.accounts.student_creator;
         proposal_account.creator_id = creator_account.id;
@@ -152,7 +154,7 @@ pub mod teaching_project_handler {
         subject_account.pending_proposals.push(proposal_account.id);
 
         proposal_account.publishing_timestamp = Clock::get().unwrap().unix_timestamp;
-        proposal_account.ending_timestamp = proposal_account.publishing_timestamp + 2592000;
+        proposal_account.ending_timestamp = proposal_account.publishing_timestamp + ENDING_TIMESTAMP_OFFSET;
 
         let creator_account = &mut *ctx.accounts.professor_creator;
         proposal_account.creator_id = creator_account.id;
@@ -223,8 +225,7 @@ pub mod teaching_project_handler {
         if proposal_must_be_evaluated {
             if proposal_has_reached_agreement(proposal_account.supporting_votes, proposal_account.against_votes) {
                 proposal_account.state = ProposalState::WaitingForTeacher;
-                let current_timestamp = Clock::get().unwrap().unix_timestamp;
-                initialize_professor_proposal_account(professor_proposal_account, current_timestamp, current_timestamp + 1209600 as i64);
+                initialize_professor_proposal_account(professor_proposal_account, ENDING_TIMESTAMP_OFFSET);
                 emit! (NewProfessorProposalCreated {proposal_id: proposal_account.id , professor_proposal_id: professor_proposal_account.id});
             } else {
                 proposal_account.state = ProposalState::Rejected;
@@ -283,8 +284,7 @@ pub mod teaching_project_handler {
       if proposal_must_be_evaluated {
           if proposal_has_reached_agreement(proposal_account.supporting_votes, proposal_account.against_votes) {
               proposal_account.state = ProposalState::WaitingForTeacher;
-              let current_timestamp = Clock::get().unwrap().unix_timestamp;
-              initialize_professor_proposal_account(professor_proposal_account, current_timestamp, current_timestamp + 1209600 as i64);
+              initialize_professor_proposal_account(professor_proposal_account, ENDING_TIMESTAMP_OFFSET);
               emit! (NewProfessorProposalCreated {proposal_id: proposal_account.id , professor_proposal_id: professor_proposal_account.id});
           } else {
               proposal_account.state = ProposalState::Rejected;
@@ -298,12 +298,70 @@ pub mod teaching_project_handler {
 
     }
 
+    pub fn update_proposal_by_professor (ctx: Context<UpdateProposalByProfessor>) -> Result <bool> {
+
+        let proposal_account = &mut *ctx.accounts.proposal_account;
+        let associated_professor_proposal_account = &mut *ctx.accounts.professor_proposal_account;
+        let professor_account = &mut *ctx.accounts.professor_account;
+
+        // Reference to new TeachingProject must be updated on Proposal and passed as a parameter 
+
+        associated_professor_proposal_account.state = ProfessorProposalState::Complete;
+        proposal_account.state = ProposalState::WaitingForHighRank;
+
+
+        // Evaluating if professor has delayed more than permitted --> if so, applying the appropiate penalty
+
+        let penalty = evaluating_professor_penalty(associated_professor_proposal_account, ENDING_TIMESTAMP_OFFSET);
+
+        if penalty > 0 {
+            professor_account.punishments = professor_account.punishments + penalty;
+        }
+
+        Ok(true)
+    }
+   
+    pub fn update_proposal_by_high_rank (ctx: Context<UpdateProposalByHighRank>, accepted:bool) -> Result <bool> {
+
+
+        let proposal_account = &mut *ctx.accounts.proposal_account;
+        let associated_professor_proposal_account = &mut *ctx.accounts.professor_proposal_account;
+
+        let proposal_state: ProposalState;
+        let professor_proposal_state: ProfessorProposalState;
+
+        if accepted {
+            proposal_state = ProposalState:: Accepted;
+            professor_proposal_state = ProfessorProposalState::Complete;
+        } else {
+            proposal_state = ProposalState:: WaitingForTeacher;
+            professor_proposal_state = ProfessorProposalState::Pending;
+        }
+
+        proposal_account.state = proposal_state;
+        associated_professor_proposal_account.state = professor_proposal_state;
+
+        Ok (true)
+    }
+
+    pub fn delete_rejected_proposal_account (ctx: Context<DeleteRejectedProposal>) -> Result<bool> {
+
+        let subject_account = &mut *ctx.accounts.subject_account;
+        let proposal_account = &mut *ctx.accounts.proposal_account;
+
+        let position =subject_account.pending_proposals.iter().position(|&x| x == proposal_account.id).unwrap();
+        subject_account.pending_proposals.remove(position);
+
+        Ok (true)
+    }
+   
     pub fn create_id_generator_for(ctx: Context<CreateIdHandler>, _specification: String) -> Result<bool> {
         let id_generator_account = &mut *ctx.accounts.specification_id_handler;
         id_generator_account.smaller_id_available = 0;
         Ok(true)
     }
 
+    
 }
 
                                                        // ------- AUX FUNCTIONS ------------- //
@@ -323,7 +381,7 @@ fn proposal_has_reached_minimum_partitipation(supporting_votes: u32, against_vot
 }
 
 fn proposal_has_reached_maximum_participation (supporting_votes: u32, against_votes: u32) -> bool {
-   return (supporting_votes + against_votes) >= 21 as u32
+   return (supporting_votes + against_votes) >= 2500 as u32
 }
 
 fn proposal_has_reached_agreement(supporting_votes: u32, against_votes: u32) -> bool {
@@ -331,10 +389,26 @@ fn proposal_has_reached_agreement(supporting_votes: u32, against_votes: u32) -> 
     return (supporting_votes as f32) / (total_votes) as f32 >= (2_f32/3_f32 as f32) 
 }
 
-fn initialize_professor_proposal_account(professor_proposal_account: &mut ProfessorProposal, publishing_timestamp: i64, ending_timestamp: i64) {
+fn initialize_professor_proposal_account(professor_proposal_account: &mut ProfessorProposal, timestamp_offset: i64) {
+
+   let publishing_timestamp = Clock::get().unwrap().unix_timestamp;
+   let ending_timestamp = publishing_timestamp + (timestamp_offset/2);
+
    professor_proposal_account.publishing_timestamp = publishing_timestamp;
    professor_proposal_account.ending_timestamp = ending_timestamp;
    professor_proposal_account.state = ProfessorProposalState::Pending;
+
+}
+
+fn evaluating_professor_penalty (professor_proposal_account: &mut ProfessorProposal, timestamp_offset: i64) -> u8 {
+    let current_timestamp = Clock::get().unwrap().unix_timestamp;
+    let mut penalty_counter: u8 = 0;
+    while penalty_counter as i64 * (timestamp_offset/2) + current_timestamp > professor_proposal_account.ending_timestamp {
+        penalty_counter = penalty_counter + 1;
+    }
+
+    return penalty_counter;
+        
 }
 
 
@@ -695,7 +769,13 @@ pub struct VoteProposalByStudent <'info> {
         seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref()], 
         bump,
         constraint = voting_student.identifier_code_hash == "318aee3fed8c9d040d35a7fc1fa776fb31303833aa2de885354ddf3d44d8fb69",
-        constraint = ProposalState::VotationInProgress == proposal_account.state                                               // check if Votation is in Progress (PartialEq must be implemented by ProposalState to use '==' )
+        constraint = ProposalState::VotationInProgress == proposal_account.state, // check if Votation is in Progress (PartialEq must be implemented by ProposalState to use '==' )                                          
+        realloc = size_of::<Proposal>() 
+                  + proposal_account.title.as_bytes().len() 
+                  + proposal_account.content.as_bytes().len() 
+                  + (proposal_account.students_that_have_voted.len() * 8 + 8 - 24), // 8 bits for new vote and -24 calculated on 'size_of' previously
+        realloc::payer = authority,
+        realloc::zero = false
     )]
     pub proposal_account: Account<'info, Proposal>,
 
@@ -738,7 +818,13 @@ pub struct VoteProposalByProfessor <'info> {
         seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref()], 
         bump,
         constraint = voting_professor.identifier_code_hash == "edee29f882543b956620b26d0ee0e7e950399b1c4222f5de05e06425b4c995e9",
-        constraint = ProposalState::VotationInProgress == proposal_account.state                                               
+        constraint = ProposalState::VotationInProgress == proposal_account.state,
+        realloc = size_of::<Proposal>() 
+                  + proposal_account.title.as_bytes().len() 
+                  + proposal_account.content.as_bytes().len() 
+                  + (proposal_account.students_that_have_voted.len() * 8 + 8 - 24), 
+        realloc::payer = authority,
+        realloc::zero = false                                               
     )]
     pub proposal_account: Account<'info, Proposal>,
 
@@ -764,6 +850,99 @@ pub struct VoteProposalByProfessor <'info> {
     pub system_program: Program<'info, System>
 }
 
+#[derive(Accounts)]
+pub struct UpdateProposalByProfessor <'info> {
+
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    
+    #[account(mut, has_one = authority)]      
+    pub professor_account: Account<'info, Professor>,
+    
+    #[account(
+        mut,
+        seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref()], 
+        bump,
+        constraint = professor_account.identifier_code_hash == "edee29f882543b956620b26d0ee0e7e950399b1c4222f5de05e06425b4c995e9",
+        constraint = ProposalState::WaitingForTeacher == proposal_account.state  @  ErrorCode::VotationIsNotWaitingForTeacher                                           
+    )]
+    pub proposal_account: Account<'info, Proposal>,
+
+    #[account(
+        mut,
+        seeds = [b"professorProposal", professor_proposal_account.id.to_le_bytes().as_ref()],
+        bump,
+        constraint = professor_proposal_account.original_proposal_id == proposal_account.id,
+        constraint = proposal_account.associated_professor_proposal_id == professor_proposal_account.id
+    )]
+    pub professor_proposal_account: Account<'info, ProfessorProposal>,
+
+}
+
+#[derive(Accounts)]
+pub struct UpdateProposalByHighRank <'info> {
+
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    
+    #[account(mut, has_one = authority)]      
+    pub high_rank_account: Account<'info, HighRank>,
+
+    #[account(
+        mut,
+        seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref()], 
+        bump,
+        constraint = high_rank_account.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
+        constraint = ProposalState::WaitingForHighRank == proposal_account.state  @  ErrorCode::VotationIsNotWaitingForHighRank,
+        close = authority                                          
+    )]
+    pub proposal_account: Account<'info, Proposal>,
+
+    #[account(
+        mut,
+        seeds = [b"professorProposal", professor_proposal_account.id.to_le_bytes().as_ref()],
+        bump,
+        constraint = professor_proposal_account.original_proposal_id == proposal_account.id,
+        constraint = proposal_account.associated_professor_proposal_id == professor_proposal_account.id,
+        close = authority
+    )]
+    pub professor_proposal_account: Account<'info, ProfessorProposal>,
+
+}
+
+#[derive(Accounts)]
+pub struct DeleteRejectedProposal <'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    
+    #[account(mut, has_one = authority)]      
+    pub high_rank_account: Account<'info, HighRank>,
+
+    #[account(
+        mut,
+        seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref()], 
+        bump,
+        constraint = high_rank_account.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
+        constraint = ProposalState::WaitingForHighRank == proposal_account.state  @  ErrorCode::VotationIsNotRejected                                         
+    )]
+    pub proposal_account: Account<'info, Proposal>,
+
+    #[account(
+        mut,
+        seeds = [b"professorProposal", professor_proposal_account.id.to_le_bytes().as_ref()],
+        bump,
+        constraint = professor_proposal_account.original_proposal_id == proposal_account.id,
+        constraint = proposal_account.associated_professor_proposal_id == professor_proposal_account.id
+    )]
+    pub professor_proposal_account: Account<'info, ProfessorProposal>,
+
+    #[account(
+        seeds = [b"subject", proposal_account.subject_id.to_le_bytes().as_ref()],
+        bump,
+        constraint = proposal_account.subject_id == subject_account.id
+    )]
+    pub subject_account: Account<'info, Subject>,
+}
 
                                                 // -------------- ACCOUNTS (DATA STRUCTS) --------------------- //
 
@@ -956,7 +1135,16 @@ pub enum ErrorCode {
     UserHasAlreadyVoted,
 
     #[msg("Votation is not open")]
-    VotationIsNotOpen
+    VotationIsNotOpen,
+
+    #[msg("Votation is not waiting for Teacher")]
+    VotationIsNotWaitingForTeacher,
+
+    #[msg("Votation is not waiting for High Rank")]
+    VotationIsNotWaitingForHighRank,
+
+    #[msg("Votation is not waiting for High Rank")]
+    VotationIsNotRejected
 }
 
 
