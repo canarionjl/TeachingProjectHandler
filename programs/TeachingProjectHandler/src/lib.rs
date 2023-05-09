@@ -699,7 +699,9 @@ pub struct CreateProposalByStudent <'info> {
         bump,
         constraint = proposal_account.subject_id >= 0 && proposal_account.subject_id < subject_id_handler.smaller_id_available,
         constraint = subject_account.id == proposal_account.subject_id,
-        realloc = size_of::<Subject>() + (subject_account.name.as_bytes().len() - 20 as usize) + (subject_account.pending_proposals.len() * 8 + 8 - 20 as usize),
+        realloc = size_of::<Subject>() + 
+        subject_account.name.as_bytes().len() - (20 as usize) + 
+        subject_account.pending_proposals.len() * 4 + 4 - (20 as usize),
         realloc::payer = authority,
         realloc::zero = false
         
@@ -758,7 +760,9 @@ pub struct CreateProposalByProfessor <'info> {
         seeds = [b"subject", proposal_account.subject_id.to_le_bytes().as_ref()],
         bump,
         constraint = proposal_account.subject_id > 0 || proposal_account.subject_id <= subject_id_handler.smaller_id_available,
-        realloc = size_of::<Subject>() + (subject_account.name.as_bytes().len() - 20 as usize) + (subject_account.pending_proposals.len() * 8 + 8 - 20 as usize),
+        realloc = size_of::<Subject>() + 
+        subject_account.name.as_bytes().len() - (20 as usize) + 
+        subject_account.pending_proposals.len() * 4 + 4 - (20 as usize),
         realloc::payer = authority,
         realloc::zero = false
     )]
@@ -788,7 +792,7 @@ pub struct VoteProposalByStudent <'info> {
         realloc = size_of::<Proposal>() + 
                 proposal_account.title.as_bytes().len() - (20 as usize) +
                 proposal_account.content.as_bytes().len() - (20 as usize) +
-                proposal_account.students_that_have_voted.len() * 8 + 8 - (20 as usize),
+                proposal_account.students_that_have_voted.len() * 4 + 4 - (20 as usize),
         realloc::payer = authority,
         realloc::zero = false
     )]
@@ -837,7 +841,7 @@ pub struct VoteProposalByProfessor <'info> {
         realloc = size_of::<Proposal>() + 
                 proposal_account.title.as_bytes().len() - (20 as usize) +
                 proposal_account.content.as_bytes().len() - (20 as usize) +
-                proposal_account.students_that_have_voted.len() * 8 + 8 - (20 as usize),
+                proposal_account.students_that_have_voted.len() * 4 + 4 - (20 as usize),
         realloc::payer = authority,
         realloc::zero = false                                           
     )]
