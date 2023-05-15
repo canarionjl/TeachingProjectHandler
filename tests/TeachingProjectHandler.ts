@@ -602,7 +602,7 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     //The ID of the new Professor Account must be equal to the idExpected param (which is the ID provided by the ID's generator for Professor)
     expect(new anchor.BN(newProfessorAccount.id).eq(new anchor.BN(idExpected))).to.be.true;
 
-    //The identifierCode hash must be equal to the sha256 hash of '1111' (which is the identifier of every Professor to have certain privileges)
+    //The identifierCode hash must be equal to the sha256 hash of '2222' (which is the identifier of every Professor to have certain privileges)
     assert.equal(newProfessorAccount.identifierCodeHash, CryptoJS.SHA256("2222").toString());
 
     //The program must return true if everything is correct
@@ -1328,7 +1328,7 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     await deleteRejectedProposalByHighRank(program, wallet1, proposalAccountAfterVoting.id, proposalAccountAfterVoting.subjectId, proposalAccountAfterVoting.associatedProfessorProposalId);
 
   
-    //Trying to fetch the proposal account and the professor proposal account --> must not exist 
+    //Trying to fetch the proposal account and the professor proposal account --> they both must not exist 
     try {
       await fetchProposalAccount(program, proposalAccountAfterVoting.id);
       assert.fail("Fetching the proposalAccount does not failed and the fail was expected")
