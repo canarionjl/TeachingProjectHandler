@@ -2,6 +2,11 @@ use anchor_lang::prelude::*;
 use std::mem::size_of;
 use std::fmt;
 use sha256::digest;
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    token::{self,TokenAccount, Mint, Token, MintTo}
+};
+
 
 declare_id!("Hd3HLLMfbMJonaCvcQ8GugmTdKsGoHvce1JfAUU2gmiS");
 
@@ -107,6 +112,9 @@ pub mod teaching_project_handler {
         let subject_account = &mut *ctx.accounts.subject_account;
         let associated_professor_proposal_account = &mut *ctx.accounts.professor_proposal_account;
 
+
+        //evaluar si el alumno está matriculado en la asignatura
+
         proposal_account.title = title;
         proposal_account.content = content;
         proposal_account.subject_id = subject_account.id;
@@ -116,6 +124,7 @@ pub mod teaching_project_handler {
 
         let creator_account = &mut *ctx.accounts.student_creator;
         proposal_account.creator_id = creator_account.id;
+        proposal_account.creator_public_key = creator_account.authority.key();
 
         let proposal_id = general_id_generator(&mut ctx.accounts.proposal_id_handler);
         proposal_account.id = proposal_id;
@@ -159,6 +168,7 @@ pub mod teaching_project_handler {
 
         let creator_account = &mut *ctx.accounts.professor_creator;
         proposal_account.creator_id = creator_account.id;
+        proposal_account.creator_public_key = creator_account.authority.key();
 
         proposal_account.id = general_id_generator(&mut ctx.accounts.proposal_id_handler);
         proposal_account.user_type = ProposalUserType::Professor;
@@ -346,6 +356,52 @@ pub mod teaching_project_handler {
         Ok (true)
     }
 
+    pub fn give_credits_to_winning_student(ctx: Context<GiveCreditToWinningStudent>, user_type_code:String, mint_authority_bump: u8) -> Result <bool> {
+
+        //Checking if the publicKey of the creator account passed matches the proposal's creator public key field
+        let proposal_account_creator_public_key = ctx.accounts.proposal_account.creator_public_key;
+        let creator_account_public_key = ctx.accounts.creator_account.authority.key();
+        require_keys_eq!(proposal_account_creator_public_key, creator_account_public_key);
+
+        // Minting new token to the creator account as a reward for his/her proposal having been accepted
+        let bump = &[mint_authority_bump];
+        let mint_key = ctx.accounts.mint.key();
+        let seeds = &[&[b"mint_authority", mint_key.as_ref(), user_type_code.as_bytes().as_ref(), bump][..]];
+        token::mint_to(ctx.accounts.get_mint_ctx().with_signer(seeds), 10)?;
+
+
+        // Updating the proposal state to avoid the credits being payed more than once
+        let proposal_account = &mut *ctx.accounts.proposal_account;
+        proposal_account.state = ProposalState::AcceptedAndTokensGranted;
+
+
+        Ok(true)
+
+    }
+
+    pub fn give_credits_to_winning_professor(ctx: Context<GiveCreditToWinningProfessor>, user_type_code:String, mint_authority_bump: u8) -> Result <bool> {
+
+        //Checking if the publicKey of the creator account passed matches the proposal's creator public key field
+        let proposal_account_creator_public_key = ctx.accounts.proposal_account.creator_public_key;
+        let creator_account_public_key = ctx.accounts.creator_account.authority.key();
+        require_keys_eq!(proposal_account_creator_public_key, creator_account_public_key);
+
+        // Minting new token to the creator account as a reward for his/her proposal having been accepted
+        let bump = &[mint_authority_bump];
+        let mint_key = ctx.accounts.mint.key();
+        let seeds = &[&[b"mint_authority", mint_key.as_ref(), user_type_code.as_bytes().as_ref(), bump][..]];
+        token::mint_to(ctx.accounts.get_mint_ctx().with_signer(seeds), 10)?;
+
+
+        // Updating the proposal state to avoid the credits being payed more than once
+        let proposal_account = &mut *ctx.accounts.proposal_account;
+        proposal_account.state = ProposalState::AcceptedAndTokensGranted;
+
+
+        Ok(true)
+
+    }
+
     pub fn delete_rejected_proposal_account (ctx: Context<DeleteRejectedProposal>) -> Result<bool> {
 
         let subject_account = &mut *ctx.accounts.subject_account;
@@ -366,6 +422,7 @@ pub mod teaching_project_handler {
         id_generator_account.smaller_id_available = 0;
         Ok(true)
     }
+
 
     
 }
@@ -460,11 +517,33 @@ pub struct CreateHighRank<'info> {
         space = size_of::<HighRank>() + 12 + 100, 
         seeds=[b"highRank", authority.key().as_ref()],
         bump,
-        constraint = digest(user_type_code) == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c")
+        constraint = digest(user_type_code.clone()) == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c")
     ]
     pub high_rank_account: Account<'info, HighRank>,
 
-    pub system_program: Program<'info,System>
+    // #[account(
+    //     init_if_needed,
+    //     payer = authority,
+    //     mint::decimals = 1,
+    //     mint::authority = mint_authority,
+    //     seeds = [b"creditToken"],
+    //     bump
+    // )]
+    // pub mint: Account<'info, Mint>,
+
+    // ///CHECK: 'mint_authority' is an UncheckedAccount since it's just a PDA that references the authority of any HighRank over the tokens
+    // #[account(
+    //     mut, 
+    //     seeds = [b"mint_authority", mint.key().as_ref(), user_type_code.as_bytes().as_ref()], 
+    //     bump
+    // )]
+    // pub mint_authority: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info,System>,
+
+    // pub token_program: Program<'info, Token>,
+    // pub associated_token_program: Program<'info, AssociatedToken>,
+    // pub rent: Sysvar<'info, Rent>, 
 }
 
 #[derive(Accounts)]
@@ -483,6 +562,11 @@ pub struct CreateProfessor<'info> {
     )]
     pub professor_id_handler: Account<'info,IdHandler>,
 
+    #[account(
+        constraint = high_rank_id_handler.smaller_id_available > 0  @ ErrorCode::NotAnyHighRankInitializated
+    )]
+    pub high_rank_id_handler: Account<'info,IdHandler>,
+
     #[account(init, 
         payer=authority, 
         space = size_of::<Professor>() + 12 + 60 + 100 + 100, 
@@ -492,7 +576,21 @@ pub struct CreateProfessor<'info> {
     ]
     pub professor_account: Account<'info, Professor>,
 
-    pub system_program: Program<'info, System>
+    // #[account(mut)]
+    // pub mint: Account<'info, Mint>,
+
+    // #[account(
+    //     init, 
+    //     payer = authority, 
+    //     associated_token::mint = mint,
+    //     associated_token::authority = authority)]
+    // pub token_account: Account<'info, TokenAccount>,
+
+    pub system_program: Program<'info, System>,
+
+    // pub token_program: Program<'info, Token>,
+    // pub associated_token_program: Program<'info, AssociatedToken>,
+    // pub rent: Sysvar<'info, Rent>, 
 }
 
 #[derive(Accounts)]
@@ -511,6 +609,10 @@ pub struct CreateStudent<'info> {
     )]
     pub student_id_handler: Account<'info,IdHandler>,
 
+    #[account(
+        constraint = high_rank_id_handler.smaller_id_available > 0  @ ErrorCode::NotAnyHighRankInitializated
+    )]
+    pub high_rank_id_handler: Account<'info,IdHandler>,
 
     #[account(init, 
         payer=authority, 
@@ -924,8 +1026,166 @@ pub struct UpdateProposalByHighRank <'info> {
         constraint = proposal_account.associated_professor_proposal_id == professor_proposal_account.id,
         
     )]
-    pub professor_proposal_account: Account<'info, ProfessorProposal>,
+    pub professor_proposal_account: Account<'info, ProfessorProposal>
 
+}
+
+#[derive(Accounts)]
+#[instruction (user_type_code: String)]
+pub struct GiveCreditToWinningStudent <'info> {
+
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    
+    #[account(
+        mut,
+        has_one = authority
+    )]      
+    pub high_rank_account: Account<'info, HighRank>,
+
+    #[account(
+        mut,
+        seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref()], 
+        bump,
+        constraint = high_rank_account.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
+        constraint = ProposalState::Accepted == proposal_account.state  @  ErrorCode::VotationIsNotAccepted,                                       
+    )]
+    pub proposal_account: Account<'info, Proposal>,
+
+    #[account(
+        mut,
+        seeds=[b"student", proposal_account.creator_public_key.as_ref()], 
+        bump,
+        constraint = creator_account.identifier_code_hash == "318aee3fed8c9d040d35a7fc1fa776fb31303833aa2de885354ddf3d44d8fb69",
+        constraint = creator_account.id == proposal_account.creator_id                             
+    )]
+    pub creator_account: Account<'info, Student>,
+
+
+  /// CHECK: 'mint_authority' is an UncheckedAccount since it's just a PDA that references the authority of any HighRank over the tokens
+  #[account(
+        mut, 
+        seeds = [b"mint_authority", mint.key().as_ref(), user_type_code.as_bytes().as_ref()],
+        bump,
+        constraint = digest(user_type_code) == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c"
+    )]
+    pub mint_authority_account: UncheckedAccount<'info>,
+
+    #[account(
+        init_if_needed,
+        payer = authority,
+        mint::decimals = 1,
+        mint::authority = mint_authority_account,
+        seeds = [b"creditToken"],
+        bump
+    )]
+    pub mint: Account<'info, Mint>,
+
+    #[account(
+        init_if_needed, 
+        payer = authority, 
+        associated_token::mint = mint,
+        associated_token::authority = creator_account)]
+    pub token_account: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub rent: Sysvar<'info, Rent>, 
+}
+
+impl<'info> GiveCreditToWinningStudent <'info> {
+
+    pub fn get_mint_ctx(&self) -> CpiContext<'_, '_, '_, 'info, MintTo<'info>> {
+
+        let cpi_program =  self.token_program.to_account_info();
+        let cpi_accounts = MintTo {
+            mint: self.mint.to_account_info(),
+            to: self.token_account.to_account_info(),
+            authority: self.mint_authority_account.to_account_info(),
+        };
+
+        CpiContext::new(cpi_program, cpi_accounts)
+    }
+}
+
+#[derive(Accounts)]
+#[instruction (user_type_code: String)]
+pub struct GiveCreditToWinningProfessor <'info> {
+
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    
+    #[account(
+        mut,
+        has_one = authority
+    )]      
+    pub high_rank_account: Account<'info, HighRank>,
+
+    #[account(
+        mut,
+        seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref()], 
+        bump,
+        constraint = high_rank_account.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
+        constraint = ProposalState::Accepted == proposal_account.state  @  ErrorCode::VotationIsNotAccepted,                                       
+    )]
+    pub proposal_account: Account<'info, Proposal>,
+
+    #[account(
+        mut,
+        seeds=[b"student", proposal_account.creator_public_key.as_ref()], 
+        bump,
+        constraint = creator_account.identifier_code_hash == "edee29f882543b956620b26d0ee0e7e950399b1c4222f5de05e06425b4c995e9",
+        constraint = creator_account.id == proposal_account.creator_id                             
+    )]
+    pub creator_account: Account<'info, Professor>,
+
+
+  /// CHECK: 'mint_authority' is an UncheckedAccount since it's just a PDA that references the authority of any HighRank over the tokens
+  #[account(
+        mut, 
+        seeds = [b"mint_authority", mint.key().as_ref(), user_type_code.as_bytes().as_ref()],
+        bump,
+        constraint = digest(user_type_code) == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c"
+    )]
+    pub mint_authority_account: UncheckedAccount<'info>,
+
+    #[account(
+        init_if_needed,
+        payer = authority,
+        mint::decimals = 1,
+        mint::authority = mint_authority_account,
+        seeds = [b"creditToken"],
+        bump
+    )]
+    pub mint: Account<'info, Mint>,
+
+    #[account(
+        init_if_needed, 
+        payer = authority, 
+        associated_token::mint = mint,
+        associated_token::authority = creator_account)]
+    pub token_account: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub rent: Sysvar<'info, Rent>, 
+}
+
+impl<'info> GiveCreditToWinningProfessor <'info> {
+
+    pub fn get_mint_ctx(&self) -> CpiContext<'_, '_, '_, 'info, MintTo<'info>> {
+
+        let cpi_program =  self.token_program.to_account_info();
+        let cpi_accounts = MintTo {
+            mint: self.mint.to_account_info(),
+            to: self.token_account.to_account_info(),
+            authority: self.mint_authority_account.to_account_info(),
+        };
+
+        CpiContext::new(cpi_program, cpi_accounts)
+    }
 }
 
 #[derive(Accounts)]
@@ -965,6 +1225,7 @@ pub struct DeleteRejectedProposal <'info> {
     )]
     pub subject_account: Account<'info, Subject>,
 }
+
 
                                                 // -------------- ACCOUNTS (DATA STRUCTS) --------------------- //
 
@@ -1060,6 +1321,7 @@ pub struct Proposal {
     title: String,
     content: String,
     creator_id: i32,
+    creator_public_key: Pubkey,
     user_type: ProposalUserType,                  
     subject_id: i32,
     supporting_votes: u32,
@@ -1096,7 +1358,8 @@ VotationInProgress,
 WaitingForTeacher,
 WaitingForHighRank,
 Rejected,
-Accepted
+Accepted,
+AcceptedAndTokensGranted
 }
 
 impl fmt::Display for ProposalState {
@@ -1106,7 +1369,8 @@ impl fmt::Display for ProposalState {
             ProposalState::Rejected => write!(f, "Rejected"),
             ProposalState::WaitingForTeacher=> write!(f, "WaitingForTeacher"),
             ProposalState::WaitingForHighRank => write!(f, "WaitingForHighRank"),
-            ProposalState::VotationInProgress=> write!(f, "VotationInProgress")
+            ProposalState::VotationInProgress=> write!(f, "VotationInProgress"),
+            ProposalState::AcceptedAndTokensGranted=> write!(f, "AcceptedAndTokensGranted")
         }
     }
 }
@@ -1147,6 +1411,10 @@ Nineth
 //----------------Errors-----------------//
 #[error_code]
 pub enum ErrorCode {
+
+    #[msg("A HighRank must be initializated before creating a new professor or student")]
+    NotAnyHighRankInitializated,
+
     #[msg("Incorrect professor's id submitted")]
     IncorrectProfessorId,
 
@@ -1165,8 +1433,11 @@ pub enum ErrorCode {
     #[msg("Votation is not waiting for High Rank")]
     VotationIsNotWaitingForHighRank,
 
-    #[msg("Votation is not waiting for High Rank")]
-    VotationIsNotRejected
+    #[msg("Votation is not Rejected")]
+    VotationIsNotRejected,
+    
+    #[msg("Votation is not Accepted")]
+    VotationIsNotAccepted
 }
 
 
