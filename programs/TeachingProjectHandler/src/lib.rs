@@ -16,7 +16,10 @@ pub mod teaching_project_handler {
     use super::*;
 
     const ENDING_TIMESTAMP_OFFSET: i64 = 2592000;
-    const EXTRA_VOTES_EXPECTED: u32 = 2592000;
+    const EXTRA_VOTES_EXPECTED: u32 = 20;
+
+    /// CHECK: Modified to 20 to test the use cases --> real value = 2500;
+    const MAXIMUM_PARTICIPATION: u32 = 20;
 
     pub fn create_high_rank(ctx: Context<CreateHighRank>, user_type_code:String) -> Result<bool> {
         
@@ -110,11 +113,14 @@ pub mod teaching_project_handler {
 
         let proposal_account = &mut *ctx.accounts.proposal_account;
         let subject_account = &mut *ctx.accounts.subject_account;
+        let creator_account = &mut *ctx.accounts.student_creator;
         let associated_professor_proposal_account = &mut *ctx.accounts.professor_proposal_account;
 
 
-        //evaluar si el alumno está matriculado en la asignatura
-
+        //Evaulating if student belong to the subject
+        let subject_students = subject_account.students.clone();
+        if !evaluate_if_user_belong_to_subject(subject_students, creator_account.id) { return Err(error!(ErrorCode::UserDoesNotBelongToTheSubject)) }
+        
         proposal_account.title = title;
         proposal_account.content = content;
         proposal_account.subject_id = subject_account.id;
@@ -122,7 +128,6 @@ pub mod teaching_project_handler {
         proposal_account.publishing_timestamp = Clock::get().unwrap().unix_timestamp;
         proposal_account.ending_timestamp = proposal_account.publishing_timestamp + ENDING_TIMESTAMP_OFFSET as i64;
 
-        let creator_account = &mut *ctx.accounts.student_creator;
         proposal_account.creator_id = creator_account.id;
         proposal_account.creator_public_key = creator_account.authority.key();
 
@@ -155,7 +160,11 @@ pub mod teaching_project_handler {
 
         let proposal_account = &mut *ctx.accounts.proposal_account;
         let subject_account = &mut *ctx.accounts.subject_account;
+        let creator_account = &mut *ctx.accounts.professor_creator;
         let associated_professor_proposal_account = &mut *ctx.accounts.professor_proposal_account;
+
+        let subject_professors = subject_account.professors.clone();
+        if !evaluate_if_user_belong_to_subject(subject_professors, creator_account.id) { return Err(error!(ErrorCode::UserDoesNotBelongToTheSubject)) }
 
         proposal_account.title = title;
         proposal_account.content = content;
@@ -166,7 +175,6 @@ pub mod teaching_project_handler {
         proposal_account.publishing_timestamp = Clock::get().unwrap().unix_timestamp;
         proposal_account.ending_timestamp = proposal_account.publishing_timestamp + ENDING_TIMESTAMP_OFFSET;
 
-        let creator_account = &mut *ctx.accounts.professor_creator;
         proposal_account.creator_id = creator_account.id;
         proposal_account.creator_public_key = creator_account.authority.key();
 
@@ -176,7 +184,7 @@ pub mod teaching_project_handler {
         proposal_account.high_rank_validation = false;
         proposal_account.updated_by_teacher = false;
 
-        proposal_account.expected_votes = (subject_account.students.len() + subject_account.professors.len()) as u32 + 20;
+        proposal_account.expected_votes = (subject_account.students.len() + subject_account.professors.len()) as u32 + EXTRA_VOTES_EXPECTED;
 
         //Initializating associated professor_proposal_account for possible future uses
         associated_professor_proposal_account.id = general_id_generator(&mut ctx.accounts.professor_proposal_id_handler);
@@ -195,7 +203,12 @@ pub mod teaching_project_handler {
        
         let proposal_account = &mut *ctx.accounts.proposal_account;
         let student_account = &mut *ctx.accounts.voting_student;
+        let subject_account = &mut *ctx.accounts.subject_account;
         let professor_proposal_account = &mut *ctx.accounts.professor_proposal_account;
+
+        //Evaluating if student belong to the subject
+        let subject_professors = subject_account.professors.clone();
+        if !evaluate_if_user_belong_to_subject(subject_professors, student_account.id) { return Err(error!(ErrorCode::UserDoesNotBelongToTheSubject)) }
 
         // Evaluating if student has already voted
         for student_id in &(proposal_account.students_that_have_voted) {
@@ -220,7 +233,7 @@ pub mod teaching_project_handler {
         let mut proposal_must_be_evaluated: bool = false;
 
         if votation_is_open {
-            if proposal_has_reached_maximum_participation(proposal_account.supporting_votes, proposal_account.against_votes) {
+            if proposal_has_reached_maximum_participation(proposal_account.supporting_votes, proposal_account.against_votes, MAXIMUM_PARTICIPATION) {
                 proposal_must_be_evaluated = true
             } else {
                 proposal_account.state = ProposalState::VotationInProgress
@@ -254,8 +267,13 @@ pub mod teaching_project_handler {
     pub fn vote_proposal_by_professor(ctx: Context<VoteProposalByProfessor>, vote: bool) -> Result<String> {
 
         let proposal_account = &mut *ctx.accounts.proposal_account;
+        let subject_account = &mut *ctx.accounts.subject_account;
         let professor_account = &mut *ctx.accounts.voting_professor;
         let professor_proposal_account = &mut *ctx.accounts.professor_proposal_account;
+
+        //Evaluating if professor belong to the subject
+        let subject_professors = subject_account.professors.clone();
+        if !evaluate_if_user_belong_to_subject(subject_professors, professor_account.id) { return Err(error!(ErrorCode::UserDoesNotBelongToTheSubject)) }
 
         // Evaluating if student has already voted
         for professor_id in &(proposal_account.students_that_have_voted) {
@@ -280,7 +298,7 @@ pub mod teaching_project_handler {
       let mut proposal_must_be_evaluated: bool = false;
 
       if votation_is_open {
-          if proposal_has_reached_maximum_participation(proposal_account.supporting_votes, proposal_account.against_votes) {
+          if proposal_has_reached_maximum_participation(proposal_account.supporting_votes, proposal_account.against_votes, MAXIMUM_PARTICIPATION) {
               proposal_must_be_evaluated = true
           } else {
               proposal_account.state = ProposalState::VotationInProgress
@@ -369,11 +387,9 @@ pub mod teaching_project_handler {
         let seeds = &[&[b"mint_authority", mint_key.as_ref(), user_type_code.as_bytes().as_ref(), bump][..]];
         token::mint_to(ctx.accounts.get_mint_ctx().with_signer(seeds), 10)?;
 
-
         // Updating the proposal state to avoid the credits being payed more than once
         let proposal_account = &mut *ctx.accounts.proposal_account;
         proposal_account.state = ProposalState::AcceptedAndTokensGranted;
-
 
         Ok(true)
 
@@ -392,11 +408,9 @@ pub mod teaching_project_handler {
         let seeds = &[&[b"mint_authority", mint_key.as_ref(), user_type_code.as_bytes().as_ref(), bump][..]];
         token::mint_to(ctx.accounts.get_mint_ctx().with_signer(seeds), 10)?;
 
-
         // Updating the proposal state to avoid the credits being payed more than once
         let proposal_account = &mut *ctx.accounts.proposal_account;
         proposal_account.state = ProposalState::AcceptedAndTokensGranted;
-
 
         Ok(true)
 
@@ -443,13 +457,26 @@ fn proposal_has_reached_minimum_partitipation(supporting_votes: u32, against_vot
     return supporting_votes + against_votes >= expected_votes
 }
 
-fn proposal_has_reached_maximum_participation (supporting_votes: u32, against_votes: u32) -> bool {
-   return (supporting_votes + against_votes) >= 20 as u32
+fn proposal_has_reached_maximum_participation (supporting_votes: u32, against_votes: u32, max_participation: u32) -> bool {
+   return (supporting_votes + against_votes) >= max_participation as u32
 }
 
 fn proposal_has_reached_agreement(supporting_votes: u32, against_votes: u32) -> bool {
     let total_votes: f32 = supporting_votes as f32 + against_votes as f32;
     return (supporting_votes as f32) / (total_votes) as f32 >= (2_f32/3_f32 as f32) 
+}
+
+fn evaluate_if_user_belong_to_subject(users: Vec<i32>, user_id:i32) -> bool {
+
+   let mut user_belong: bool = false;
+
+   for user in users {
+        if user_id == user {
+            user_belong = true;
+        }
+    }
+
+   return user_belong;
 }
 
 fn initialize_professor_proposal_account(professor_proposal_account: &mut ProfessorProposal, timestamp_offset: i64) {
@@ -1437,7 +1464,10 @@ pub enum ErrorCode {
     VotationIsNotRejected,
     
     #[msg("Votation is not Accepted")]
-    VotationIsNotAccepted
+    VotationIsNotAccepted,
+
+    #[msg("User does not belong to the subject")]
+    UserDoesNotBelongToTheSubject
 }
 
 
