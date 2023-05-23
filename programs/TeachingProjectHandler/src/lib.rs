@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use std::mem::size_of;
 use std::fmt;
+use std::usize::MAX;
 use sha256::digest;
 use anchor_spl::{
     associated_token::AssociatedToken,
@@ -10,16 +11,20 @@ use anchor_spl::{
 
 declare_id!("Hd3HLLMfbMJonaCvcQ8GugmTdKsGoHvce1JfAUU2gmiS");
 
+const SOLANA_ACCOUNT_MAX_SIZE: usize = 1 * 10_usize.pow(4);  // 0.1 MB
+
+const ENDING_TIMESTAMP_OFFSET: i64 = 2592000;
+const EXTRA_VOTES_EXPECTED: u32 = 20;
+
+/// CHECK: Modified to 20 to test the use cases --> real value = 2500;
+const MAXIMUM_PARTICIPATION: u32 = 20;
+
+const TOKENS_RECEIVED_AS_REWARD: u8 = 10;
+
 #[program]
 pub mod teaching_project_handler {
 
     use super::*;
-
-    const ENDING_TIMESTAMP_OFFSET: i64 = 2592000;
-    const EXTRA_VOTES_EXPECTED: u32 = 20;
-
-    /// CHECK: Modified to 20 to test the use cases --> real value = 2500;
-    const MAXIMUM_PARTICIPATION: u32 = 20;
 
     pub fn create_high_rank(ctx: Context<CreateHighRank>, user_type_code:String) -> Result<bool> {
         
@@ -31,20 +36,44 @@ pub mod teaching_project_handler {
         Ok(true)
     }
 
-    pub fn create_professor(ctx: Context<CreateProfessor>, user_type_code:String) -> Result<bool> {
+    pub fn create_professor(ctx: Context<CreateProfessor>, user_type_code:String, subjects_array: Vec<u32>) -> Result<bool> {
+
         let professor_account = &mut *ctx.accounts.professor_account;
         professor_account.id = general_id_generator(&mut ctx.accounts.professor_id_handler);
         professor_account.identifier_code_hash = digest(user_type_code);
         professor_account.authority = *ctx.accounts.authority.key;
+
+        let code_id_relation_account = &mut *ctx.accounts.code_id_subject_relation;
+
+        professor_account.subjects = subjects_array;
+
+        for subject_code in professor_account.subjects.clone() {
+            match code_id_relation_account.get_id_key_from_code_value(subject_code as u32) {
+                Some(_key_id) => code_id_relation_account.add_new_professor(subject_code),
+                None => code_id_relation_account.add_new_code_value_without_corresponding_id (subject_code, false, true)
+            }
+        }  
+
         Ok(true)
     }
 
-    pub fn create_student(ctx: Context<CreateStudent>, user_type_code:String) -> Result<bool> {
+    pub fn create_student(ctx: Context<CreateStudent>, user_type_code:String, subjects_array: Vec<u32>) -> Result<bool> {
 
         let student_account = &mut *ctx.accounts.student_account;
         student_account.id = general_id_generator(&mut ctx.accounts.student_id_handler);
         student_account.identifier_code_hash = digest(user_type_code);
         student_account.authority = *ctx.accounts.authority.key;
+
+        student_account.subjects = subjects_array;
+
+        let code_id_relation_account = &mut *ctx.accounts.code_id_subject_relation;
+
+        for subject_code in student_account.subjects.clone() {
+            match code_id_relation_account.get_id_key_from_code_value(subject_code as u32) {
+                Some(_key_id) => code_id_relation_account.add_new_student(subject_code),
+                None => code_id_relation_account.add_new_code_value_without_corresponding_id (subject_code, true, false)
+            }
+        }   
         
         Ok(true)
     }
@@ -65,7 +94,8 @@ pub mod teaching_project_handler {
         degree_account.name = name;
         degree_account.faculty_id = faculty_id;
 
-        Ok(false)
+        Ok(true)
+
     }
 
     pub fn create_specialty (ctx: Context<CreateSpecialty>, name:String, degree_id: i32) -> Result<bool> {
@@ -78,7 +108,7 @@ pub mod teaching_project_handler {
         Ok(true)
     }
 
-    pub fn create_subject(ctx: Context<CreateSubject>, name:String, degree_id: i32, specialty_id: i32, course: SubjectCourse, professors: Vec<i32>, students: Vec<i32>) -> Result<bool> {
+    pub fn create_subject(ctx: Context<CreateSubject>, name:String, degree_id: i32, specialty_id: i32, course: SubjectCourse, code: u32) -> Result<bool> {
 
         let subject_account = &mut *ctx.accounts.subject_account;
         subject_account.id = general_id_generator(&mut ctx.accounts.subject_id_handler);
@@ -86,24 +116,10 @@ pub mod teaching_project_handler {
         subject_account.degree_id = degree_id;
         subject_account.specialty_id = specialty_id;
         subject_account.course = course;
+        subject_account.code = code;
 
-        let professor_id_handler = &mut *ctx.accounts.professor_id_handler;
-
-        for professor_id in &professors {
-            if (professor_id.clone() >= professor_id_handler.smaller_id_available) || professor_id.clone() < 0 {
-                return Err(error!(ErrorCode::IncorrectProfessorId));
-            }
-        }
-        subject_account.professors = professors;
-
-        let student_id_handler = &mut *ctx.accounts.student_id_handler;
-
-        for student_id in &students {
-            if (student_id.clone() >= student_id_handler.smaller_id_available) || student_id.clone() < 0 {
-                return Err(error!(ErrorCode::IncorrectStudentId));
-            }
-        }
-        subject_account.students = students;
+        let code_id_relation_account = &mut *ctx.accounts.code_id_subject_relation_account;
+        code_id_relation_account.add_key_value_subject_pair(subject_account.id, code, false, false);
 
         Ok(true)
 
@@ -116,10 +132,8 @@ pub mod teaching_project_handler {
         let creator_account = &mut *ctx.accounts.student_creator;
         let associated_professor_proposal_account = &mut *ctx.accounts.professor_proposal_account;
 
-
-        //Evaulating if student belong to the subject
-        let subject_students = subject_account.students.clone();
-        if !evaluate_if_user_belong_to_subject(subject_students, creator_account.id) { return Err(error!(ErrorCode::UserDoesNotBelongToTheSubject)) }
+        let subject_professors = creator_account.subjects.clone();
+        if !evaluate_if_user_belong_to_subject(subject_professors, subject_account.code) { return Err(error!(ErrorCode::UserDoesNotBelongToTheSubject)) }
         
         proposal_account.title = title;
         proposal_account.content = content;
@@ -140,7 +154,14 @@ pub mod teaching_project_handler {
         proposal_account.high_rank_validation = false;
         proposal_account.updated_by_teacher = false;
 
-        proposal_account.expected_votes = (subject_account.students.len() + subject_account.professors.len()) as u32 + EXTRA_VOTES_EXPECTED;
+        let code_id_relation_account = &mut *ctx.accounts.code_id_subject_relation;
+        let subject_info: AdditionalSubjectInfo;
+        match code_id_relation_account.get_info_value_from_id_key(subject_account.id.clone()) {
+            Some(info) => subject_info = info,
+            None => return Err(error!(ErrorCode::AdditionalSubjectInfoNotFound))
+        }
+
+        proposal_account.expected_votes = (subject_info.number_of_students as u32 + subject_info.number_of_professors as u32) as u32 + EXTRA_VOTES_EXPECTED;
 
         //Initializating associated professor_proposal_account for possible future uses
         associated_professor_proposal_account.id = general_id_generator(&mut ctx.accounts.professor_proposal_id_handler);
@@ -150,7 +171,6 @@ pub mod teaching_project_handler {
         proposal_account.associated_professor_proposal_id = associated_professor_proposal_account.id;
 
         emit! (NewProposalCreated {proposal_id: proposal_account.id , subject_id: proposal_account.subject_id});
-
 
         Ok(true)
 
@@ -163,8 +183,8 @@ pub mod teaching_project_handler {
         let creator_account = &mut *ctx.accounts.professor_creator;
         let associated_professor_proposal_account = &mut *ctx.accounts.professor_proposal_account;
 
-        let subject_professors = subject_account.professors.clone();
-        if !evaluate_if_user_belong_to_subject(subject_professors, creator_account.id) { return Err(error!(ErrorCode::UserDoesNotBelongToTheSubject)) }
+        let subject_professors = creator_account.subjects.clone();
+        if !evaluate_if_user_belong_to_subject(subject_professors, subject_account.code) { return Err(error!(ErrorCode::UserDoesNotBelongToTheSubject)) }
 
         proposal_account.title = title;
         proposal_account.content = content;
@@ -184,7 +204,14 @@ pub mod teaching_project_handler {
         proposal_account.high_rank_validation = false;
         proposal_account.updated_by_teacher = false;
 
-        proposal_account.expected_votes = (subject_account.students.len() + subject_account.professors.len()) as u32 + EXTRA_VOTES_EXPECTED;
+        let code_id_relation_account = &mut *ctx.accounts.code_id_subject_relation;
+        let subject_info: AdditionalSubjectInfo;
+        match code_id_relation_account.get_info_value_from_id_key(subject_account.id) {
+            Some(info) => subject_info = info,
+            None => return Err(error!(ErrorCode::AdditionalSubjectInfoNotFound))
+        }
+
+        proposal_account.expected_votes = (subject_info.number_of_students as u32 + subject_info.number_of_professors as u32) as u32 + EXTRA_VOTES_EXPECTED;
 
         //Initializating associated professor_proposal_account for possible future uses
         associated_professor_proposal_account.id = general_id_generator(&mut ctx.accounts.professor_proposal_id_handler);
@@ -206,9 +233,8 @@ pub mod teaching_project_handler {
         let subject_account = &mut *ctx.accounts.subject_account;
         let professor_proposal_account = &mut *ctx.accounts.professor_proposal_account;
 
-        //Evaluating if student belong to the subject
-        let subject_professors = subject_account.professors.clone();
-        if !evaluate_if_user_belong_to_subject(subject_professors, student_account.id) { return Err(error!(ErrorCode::UserDoesNotBelongToTheSubject)) }
+        let subject_professors = student_account.subjects.clone();
+        if !evaluate_if_user_belong_to_subject(subject_professors, subject_account.code) { return Err(error!(ErrorCode::UserDoesNotBelongToTheSubject)) }
 
         // Evaluating if student has already voted
         for student_id in &(proposal_account.students_that_have_voted) {
@@ -271,9 +297,8 @@ pub mod teaching_project_handler {
         let professor_account = &mut *ctx.accounts.voting_professor;
         let professor_proposal_account = &mut *ctx.accounts.professor_proposal_account;
 
-        //Evaluating if professor belong to the subject
-        let subject_professors = subject_account.professors.clone();
-        if !evaluate_if_user_belong_to_subject(subject_professors, professor_account.id) { return Err(error!(ErrorCode::UserDoesNotBelongToTheSubject)) }
+        let subject_professors = professor_account.subjects.clone();
+        if !evaluate_if_user_belong_to_subject(subject_professors, subject_account.code) { return Err(error!(ErrorCode::UserDoesNotBelongToTheSubject)) }
 
         // Evaluating if student has already voted
         for professor_id in &(proposal_account.students_that_have_voted) {
@@ -353,7 +378,6 @@ pub mod teaching_project_handler {
    
     pub fn update_proposal_by_high_rank (ctx: Context<UpdateProposalByHighRank>, accepted:bool) -> Result <bool> {
 
-
         let proposal_account = &mut *ctx.accounts.proposal_account;
         let associated_professor_proposal_account = &mut *ctx.accounts.professor_proposal_account;
 
@@ -385,7 +409,7 @@ pub mod teaching_project_handler {
         let bump = &[mint_authority_bump];
         let mint_key = ctx.accounts.mint.key();
         let seeds = &[&[b"mint_authority", mint_key.as_ref(), user_type_code.as_bytes().as_ref(), bump][..]];
-        token::mint_to(ctx.accounts.get_mint_ctx().with_signer(seeds), 10)?;
+        token::mint_to(ctx.accounts.get_mint_ctx().with_signer(seeds), TOKENS_RECEIVED_AS_REWARD as u64)?;
 
         // Updating the proposal state to avoid the credits being payed more than once
         let proposal_account = &mut *ctx.accounts.proposal_account;
@@ -406,7 +430,7 @@ pub mod teaching_project_handler {
         let bump = &[mint_authority_bump];
         let mint_key = ctx.accounts.mint.key();
         let seeds = &[&[b"mint_authority", mint_key.as_ref(), user_type_code.as_bytes().as_ref(), bump][..]];
-        token::mint_to(ctx.accounts.get_mint_ctx().with_signer(seeds), 10)?;
+        token::mint_to(ctx.accounts.get_mint_ctx().with_signer(seeds), TOKENS_RECEIVED_AS_REWARD as u64)?;
 
         // Updating the proposal state to avoid the credits being payed more than once
         let proposal_account = &mut *ctx.accounts.proposal_account;
@@ -433,9 +457,17 @@ pub mod teaching_project_handler {
    
     pub fn create_id_generator_for(ctx: Context<CreateIdHandler>, _specification: String) -> Result<bool> {
         let id_generator_account = &mut *ctx.accounts.specification_id_handler;
-        id_generator_account.smaller_id_available = 0;
+        id_generator_account.smaller_id_available = 1;
         Ok(true)
     }
+    
+    pub fn create_code_id_subject_relation_for (ctx: Context<CreateCodeIdSubjectRelation>) -> Result<bool> {
+        let code_id_subject_relation_account = &mut *ctx.accounts.code_id_subject_relation;
+        code_id_subject_relation_account.code_value = vec![];
+        code_id_subject_relation_account.key_id = vec![];
+        Ok(true)
+    }
+
 
 
     
@@ -454,7 +486,7 @@ fn votation_is_open (ending_timestamp_of_votation: i64) -> bool {
 }
 
 fn proposal_has_reached_minimum_partitipation(supporting_votes: u32, against_votes: u32, expected_votes: u32) -> bool {
-    return supporting_votes + against_votes >= expected_votes
+    return (supporting_votes + against_votes) >= expected_votes
 }
 
 fn proposal_has_reached_maximum_participation (supporting_votes: u32, against_votes: u32, max_participation: u32) -> bool {
@@ -464,19 +496,6 @@ fn proposal_has_reached_maximum_participation (supporting_votes: u32, against_vo
 fn proposal_has_reached_agreement(supporting_votes: u32, against_votes: u32) -> bool {
     let total_votes: f32 = supporting_votes as f32 + against_votes as f32;
     return (supporting_votes as f32) / (total_votes) as f32 >= (2_f32/3_f32 as f32) 
-}
-
-fn evaluate_if_user_belong_to_subject(users: Vec<i32>, user_id:i32) -> bool {
-
-   let mut user_belong: bool = false;
-
-   for user in users {
-        if user_id == user {
-            user_belong = true;
-        }
-    }
-
-   return user_belong;
 }
 
 fn initialize_professor_proposal_account(professor_proposal_account: &mut ProfessorProposal, timestamp_offset: i64) {
@@ -501,8 +520,21 @@ fn evaluating_professor_penalty (professor_proposal_account: &mut ProfessorPropo
         
 }
 
+fn evaluate_if_user_belong_to_subject(subjects: Vec<u32>, subject_code:u32) -> bool {
 
-                          // --------- ACCOUNTS DATA STRUCTURES ('CONTEXT' PARAM IN  'teaching_project_handler' MOD FUNCTIONS) ----- 
+    let mut user_belong: bool = false;
+ 
+    for subject in subjects {
+         if subject_code == subject {
+             user_belong = true;
+         }
+     }
+ 
+    return user_belong;
+ }
+ 
+
+                          // --------- ACCOUNTS DATA STRUCTURES ('CTX' PARAM IN 'teaching_project_handler' MOD FUNCTIONS) ----- 
 
 #[derive(Accounts)]
 #[instruction(_specification: String)]
@@ -519,6 +551,24 @@ pub struct CreateIdHandler<'info> {
         bump
     )]
     pub specification_id_handler: Account<'info,IdHandler>,
+
+    pub system_program: Program<'info,System>
+}
+
+#[derive(Accounts)]
+pub struct CreateCodeIdSubjectRelation <'info> {
+
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = SOLANA_ACCOUNT_MAX_SIZE,
+        seeds = [b"codeIdSubjectRelation"],
+        bump
+    )]
+    pub code_id_subject_relation: Account<'info, CodeIdSubjectRelation>,
 
     pub system_program: Program<'info,System>
 }
@@ -548,29 +598,8 @@ pub struct CreateHighRank<'info> {
     ]
     pub high_rank_account: Account<'info, HighRank>,
 
-    // #[account(
-    //     init_if_needed,
-    //     payer = authority,
-    //     mint::decimals = 1,
-    //     mint::authority = mint_authority,
-    //     seeds = [b"creditToken"],
-    //     bump
-    // )]
-    // pub mint: Account<'info, Mint>,
-
-    // ///CHECK: 'mint_authority' is an UncheckedAccount since it's just a PDA that references the authority of any HighRank over the tokens
-    // #[account(
-    //     mut, 
-    //     seeds = [b"mint_authority", mint.key().as_ref(), user_type_code.as_bytes().as_ref()], 
-    //     bump
-    // )]
-    // pub mint_authority: UncheckedAccount<'info>,
-
     pub system_program: Program<'info,System>,
 
-    // pub token_program: Program<'info, Token>,
-    // pub associated_token_program: Program<'info, AssociatedToken>,
-    // pub rent: Sysvar<'info, Rent>, 
 }
 
 #[derive(Accounts)]
@@ -590,7 +619,7 @@ pub struct CreateProfessor<'info> {
     pub professor_id_handler: Account<'info,IdHandler>,
 
     #[account(
-        constraint = high_rank_id_handler.smaller_id_available > 0  @ ErrorCode::NotAnyHighRankInitializated
+        constraint = high_rank_id_handler.smaller_id_available > 1  @ ErrorCode::NotAnyHighRankInitializated
     )]
     pub high_rank_id_handler: Account<'info,IdHandler>,
 
@@ -603,21 +632,14 @@ pub struct CreateProfessor<'info> {
     ]
     pub professor_account: Account<'info, Professor>,
 
-    // #[account(mut)]
-    // pub mint: Account<'info, Mint>,
-
-    // #[account(
-    //     init, 
-    //     payer = authority, 
-    //     associated_token::mint = mint,
-    //     associated_token::authority = authority)]
-    // pub token_account: Account<'info, TokenAccount>,
+    #[account(
+        mut,
+        seeds = [b"codeIdSubjectRelation"],
+        bump
+    )]
+    pub code_id_subject_relation: Account<'info, CodeIdSubjectRelation>,
 
     pub system_program: Program<'info, System>,
-
-    // pub token_program: Program<'info, Token>,
-    // pub associated_token_program: Program<'info, AssociatedToken>,
-    // pub rent: Sysvar<'info, Rent>, 
 }
 
 #[derive(Accounts)]
@@ -637,7 +659,7 @@ pub struct CreateStudent<'info> {
     pub student_id_handler: Account<'info,IdHandler>,
 
     #[account(
-        constraint = high_rank_id_handler.smaller_id_available > 0  @ ErrorCode::NotAnyHighRankInitializated
+        constraint = high_rank_id_handler.smaller_id_available > 1  @ ErrorCode::NotAnyHighRankInitializated
     )]
     pub high_rank_id_handler: Account<'info,IdHandler>,
 
@@ -649,6 +671,13 @@ pub struct CreateStudent<'info> {
         constraint = digest(user_type_code) == "318aee3fed8c9d040d35a7fc1fa776fb31303833aa2de885354ddf3d44d8fb69")
     ]
     pub student_account: Account<'info, Student>,
+
+    #[account(
+        mut,
+        seeds = [b"codeIdSubjectRelation"],
+        bump
+    )]
+    pub code_id_subject_relation: Account<'info, CodeIdSubjectRelation>,
 
     pub system_program: Program<'info,System>
 }
@@ -740,7 +769,7 @@ pub struct CreateSpecialty <'info> {
 }
 
 #[derive(Accounts)]
-#[instruction (name: String, degree_id: i32, specialty_id: i32, course: SubjectCourse)]
+#[instruction (name: String, degree_id: i32, specialty_id: i32, course: SubjectCourse, code: u32)]
 pub struct CreateSubject<'info> {
 
     #[account(mut)]
@@ -758,11 +787,6 @@ pub struct CreateSubject<'info> {
     #[account()]
     pub specialty_id_handler: Account<'info,IdHandler>,
 
-    #[account()]
-    pub professor_id_handler: Account<'info, IdHandler>,
-
-    #[account()]
-    pub student_id_handler: Account<'info, IdHandler>,
 
     #[account(init, 
         payer=authority, 
@@ -771,9 +795,17 @@ pub struct CreateSubject<'info> {
         bump,
         constraint = high_rank.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
         constraint = (degree_id >= 0) && (degree_id < degree_id_handler.smaller_id_available),
-        constraint = (specialty_id == -1) || (specialty_id >= 0 && specialty_id < specialty_id_handler.smaller_id_available)
+        constraint = (specialty_id == -1) || (specialty_id >= 0 && specialty_id < specialty_id_handler.smaller_id_available),
+        constraint = code > 0
     )]
     pub subject_account: Account<'info, Subject>,
+
+    #[account(
+        mut,
+        seeds = [b"codeIdSubjectRelation"],
+        bump
+    )]
+    pub code_id_subject_relation_account: Account<'info, CodeIdSubjectRelation>,
 
     pub system_program: Program<'info, System>
 }
@@ -803,14 +835,14 @@ pub struct CreateProposalByStudent <'info> {
     #[account()]
     pub subject_id_handler: Account<'info,IdHandler>,
 
-    #[account(init, 
+    #[account(
+        init, 
         payer=authority, 
         space = size_of::<Proposal>() + title.as_bytes().len() + content.as_bytes().len() + 40, 
         seeds=[b"proposal", proposal_id_handler.smaller_id_available.to_le_bytes().as_ref()], 
         bump,
         constraint = student_creator.identifier_code_hash == "318aee3fed8c9d040d35a7fc1fa776fb31303833aa2de885354ddf3d44d8fb69",
-        constraint = title.len() <= 100 && content.len() <= 2500
-        
+        constraint = title.len() <= 100 && content.len() <= 2500       
     )]
     pub proposal_account: Account<'info, Proposal>,
 
@@ -824,18 +856,24 @@ pub struct CreateProposalByStudent <'info> {
 
     #[account(
         mut,
-        seeds = [b"subject", proposal_account.subject_id.to_le_bytes().as_ref()],
+        seeds = [b"subject", subject_account.id.to_le_bytes().as_ref()],
         bump,
-        constraint = proposal_account.subject_id >= 0 && proposal_account.subject_id < subject_id_handler.smaller_id_available,
-        constraint = subject_account.id == proposal_account.subject_id,
-        realloc = size_of::<Subject>() + 
-        subject_account.name.as_bytes().len() - (20 as usize) + 
-        subject_account.pending_proposals.len() * 4 + 4 - (20 as usize),
+        realloc = 
+            size_of::<Subject>() + 
+            (subject_account.name.as_bytes().len() as usize) - (20 as usize) + 
+            (subject_account.pending_proposals.len() as u16 * size_of::<i32> as u16 + 8_u16) as usize - (20 as usize),
         realloc::payer = authority,
         realloc::zero = false
         
     )]
     pub subject_account: Account<'info, Subject>,
+
+    #[account(
+        mut,
+        seeds = [b"codeIdSubjectRelation"],
+        bump
+    )]
+    pub code_id_subject_relation: Account<'info, CodeIdSubjectRelation>,
 
     pub system_program: Program<'info, System>
 }
@@ -865,7 +903,8 @@ pub struct CreateProposalByProfessor <'info> {
     #[account()]
     pub subject_id_handler: Account<'info,IdHandler>,
 
-    #[account(init, 
+    #[account(
+        init, 
         payer=authority, 
         space = size_of::<Proposal>() + title.as_bytes().len() + content.as_bytes().len() + 40, 
         seeds=[b"proposal", proposal_id_handler.smaller_id_available.to_le_bytes().as_ref()], 
@@ -886,16 +925,22 @@ pub struct CreateProposalByProfessor <'info> {
 
     #[account(
         mut,
-        seeds = [b"subject", proposal_account.subject_id.to_le_bytes().as_ref()],
+        seeds = [b"subject", subject_account.id.to_le_bytes().as_ref()],
         bump,
-        constraint = proposal_account.subject_id > 0 || proposal_account.subject_id <= subject_id_handler.smaller_id_available,
-        realloc = size_of::<Subject>() + 
-        subject_account.name.as_bytes().len() - (20 as usize) + 
-        subject_account.pending_proposals.len() * 4 + 4 - (20 as usize),
+        realloc = 
+            size_of::<Subject>() + 
+            (subject_account.name.as_bytes().len() as usize) - (20 as usize) + 
+            (subject_account.pending_proposals.len() as u16 * size_of::<i32> as u16 + 8_u16) as usize - (20 as usize),
         realloc::payer = authority,
         realloc::zero = false
     )]
     pub subject_account: Account<'info, Subject>,
+
+    #[account(
+        seeds = [b"codeIdSubjectRelation"],
+        bump
+    )]
+    pub code_id_subject_relation: Account<'info, CodeIdSubjectRelation>,
 
     pub system_program: Program<'info, System>
 }
@@ -917,7 +962,7 @@ pub struct VoteProposalByStudent <'info> {
         seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref()], 
         bump,
         constraint = voting_student.identifier_code_hash == "318aee3fed8c9d040d35a7fc1fa776fb31303833aa2de885354ddf3d44d8fb69",
-        constraint = ProposalState::VotationInProgress == proposal_account.state, // check if Votation is in Progress (PartialEq must be implemented by ProposalState to use '==' )                                          
+        constraint = ProposalState::VotationInProgress == proposal_account.state @ErrorCode::VotationIsNotOpen,                                     
         realloc = size_of::<Proposal>() + 
                 proposal_account.title.as_bytes().len() - (20 as usize) +
                 proposal_account.content.as_bytes().len() - (20 as usize) +
@@ -966,7 +1011,7 @@ pub struct VoteProposalByProfessor <'info> {
         seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref()], 
         bump,
         constraint = voting_professor.identifier_code_hash == "edee29f882543b956620b26d0ee0e7e950399b1c4222f5de05e06425b4c995e9",
-        constraint = ProposalState::VotationInProgress == proposal_account.state,
+        constraint = ProposalState::VotationInProgress == proposal_account.state @ ErrorCode::VotationIsNotOpen,
         realloc = size_of::<Proposal>() + 
                 proposal_account.title.as_bytes().len() - (20 as usize) +
                 proposal_account.content.as_bytes().len() - (20 as usize) +
@@ -1281,7 +1326,7 @@ pub struct Professor {
     id: i32,                                      // 8 bytes
     identifier_code_hash: String,                 // Tamaño real: 32 bytes + 4 (alineación) = 36 bytes || Tamaño por defecto: 24 (20 + 4 alineación) --> dif = + 12 bytes
     authority: Pubkey,                            // 32 bytes
-    subjects: Vec<u64>,                           // Suponiendo 10 asignaturas: 10*8 bytes (80 bytes + 4 alineación) || Tamaño por defecto: 24 (20 + 4 alineación) --> dif = + 60 bytes
+    subjects: Vec<u32>,                           // Suponiendo 10 asignaturas: 10*8 bytes (80 bytes + 4 alineación) || Tamaño por defecto: 24 (20 + 4 alineación) --> dif = + 60 bytes
     pendent_learning_project_proposal: Vec<i64>,  // Suponiendo 15 propuestas: 15*8 bytes (120 bytes + 4 alineación) || Tamaño por defecto: 24 (20 + 4 alineación) --> dif = + 100 bytes
     pendent_votation_proposals: Vec<i64>,         // Suponiendo 15 propuestas: 15*8 bytes (120 bytes + 4 alineación) || Tamaño por defecto: 24 (20 + 4 alineación) --> dif = + 100 bytes
     punishments: u8,                              // 1 byte
@@ -1294,7 +1339,7 @@ pub struct Student {
     id: i32,                               // 8 bytes
     identifier_code_hash: String,          // Tamaño real: 32 bytes + 4 (alineación) = 36 bytes || Tamaño por defecto: 24 (20 + 4 alineación) --> dif = + 12 bytes
     authority: Pubkey,                     // 32 bytes
-    subjects: Vec<u64>,                    // Suponiendo 15 asignaturas: 15*8 bytes (120 bytes + 4 alineación) || Tamaño por defecto: 24 (20 + 4 alineación) --> dif = + 100 bytes
+    subjects: Vec<u32>,                    // Suponiendo 15 asignaturas: 15*8 bytes (120 bytes + 4 alineación) || Tamaño por defecto: 24 (20 + 4 alineación) --> dif = + 100 bytes
     pendent_votation_proposals: Vec<i64>,  // Suponiendo 15 propuestas: 15*8 bytes (120 bytes + 4 alineación) || Tamaño por defecto: 24 (20 + 4 alineación) --> dif = + 100 bytes
     punishments: u8,                       // 1 byte
     rewards: u32,                          // 4 bytes
@@ -1331,12 +1376,11 @@ degree_id: i32
 pub struct Subject {
     name: String,
     id: i32,
+    code: u32,
     degree_id: i32,
     specialty_id: i32,
     course: SubjectCourse,
-    pending_proposals: Vec<i32>,
-    students: Vec<i32>,
-    professors: Vec<i32>
+    pending_proposals: Vec<i32>
 }
 
 #[account]
@@ -1373,6 +1417,122 @@ pub struct ProfessorProposal {
     state: ProfessorProposalState
 }
 
+
+#[account]
+#[derive(Default, PartialEq)]
+pub struct CodeIdSubjectRelation {
+    key_id: Vec<i32>,
+    code_value: Vec<AdditionalSubjectInfo>
+}
+
+
+#[derive(AnchorSerialize, AnchorDeserialize, Copy, Clone, PartialEq)]
+pub struct AdditionalSubjectInfo {
+    code: u32,
+    number_of_professors: u8,
+    number_of_students: u16
+}
+
+impl CodeIdSubjectRelation {
+
+    fn add_new_code_value_without_corresponding_id (&mut self, code_value:u32, new_student: bool, new_professor: bool) {
+
+        if let Some(_position) = self.code_value.iter().position(|&x| x.code == code_value) {
+           return 
+        } 
+
+        self.key_id.push(-1_i32);
+
+        let new_additional_subject_info = AdditionalSubjectInfo {
+            code: code_value, 
+            number_of_professors:new_professor as u8,
+            number_of_students: new_student as u16
+        };
+
+        self.code_value.push(new_additional_subject_info);
+
+    }
+
+    fn add_key_value_subject_pair (&mut self, key_id:i32, code_value:u32, new_student: bool, new_professor: bool) {
+
+        let mut code_already_exists: bool = false;
+        let mut position_of_the_code: usize = MAX;
+
+        if let Some(position) = self.code_value.iter().position(|&x| x.code == code_value) {
+            code_already_exists = true;
+            position_of_the_code = position;
+        } 
+
+        if code_already_exists {
+
+            if self.key_id.get(position_of_the_code) == Some(&-1) && key_id >= 0 {
+
+                self.key_id.swap_remove(position_of_the_code);
+                self.key_id.insert(position_of_the_code, key_id);
+
+            }  
+
+        } else {
+
+            self.key_id.push(key_id);
+
+            let new_additional_subject_info = AdditionalSubjectInfo {
+                code: code_value, 
+                number_of_professors:new_professor as u8,
+                number_of_students: new_student as u16
+            };
+
+            self.code_value.push(new_additional_subject_info);
+
+        }
+
+    }
+
+    fn get_info_value_from_id_key (&mut self, key_id: i32) -> Option<AdditionalSubjectInfo> {
+        
+        if let Some(position) = self.key_id.iter().position(|&x| x == key_id) {
+            if let Some(info) = self.code_value.get(position) {
+                return Some(info.clone())
+            } else {
+                return None;
+            }
+        } else {
+            return None;
+        }  
+
+    }
+
+    fn get_id_key_from_code_value(&mut self, code_value: u32) -> Option<i32> {
+        
+        if let Some(position) = self.code_value.iter().position(|&x| x.code == code_value) {
+            return self.key_id.get(position).cloned()
+        } else {
+            return None;
+        }  
+
+    }
+
+    fn add_new_professor(&mut self, code_value:u32) {
+
+        if let Some(position) = self.code_value.iter().position(|&x| x.code == code_value) {
+
+            if let Some (info) = self.code_value.get_mut(position) {
+                info.number_of_professors += 1;
+            }
+        }        
+    }
+
+    fn add_new_student (&mut self, code_value:u32) {
+
+        if let Some(position) = self.code_value.iter().position(|&x| x.code == code_value) {
+
+            if let Some (info) = self.code_value.get_mut(position) {
+                info.number_of_students += 1;
+            }
+        }
+    }
+
+}
 
 
                                                           //---------------ENUMS--------------------//
@@ -1467,7 +1627,10 @@ pub enum ErrorCode {
     VotationIsNotAccepted,
 
     #[msg("User does not belong to the subject")]
-    UserDoesNotBelongToTheSubject
+    UserDoesNotBelongToTheSubject,
+
+    #[msg("Additional subject's info not found")]
+    AdditionalSubjectInfoNotFound
 }
 
 
