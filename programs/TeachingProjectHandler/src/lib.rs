@@ -29,6 +29,10 @@ pub mod teaching_project_handler {
     pub fn create_high_rank(ctx: Context<CreateHighRank>, user_type_code:String) -> Result<bool> {
         
         let high_rank_account = &mut *ctx.accounts.high_rank_account;
+
+        let high_rank_id_handler = &mut *ctx.accounts.high_rank_id_handler;
+        update_internally_initializated_id_generator(high_rank_id_handler);
+
         high_rank_account.id = general_id_generator(&mut ctx.accounts.high_rank_id_handler);
         high_rank_account.identifier_code_hash = digest(user_type_code);
         high_rank_account.authority = *ctx.accounts.authority.key;
@@ -39,6 +43,10 @@ pub mod teaching_project_handler {
     pub fn create_professor(ctx: Context<CreateProfessor>, user_type_code:String, subjects_array: Vec<u32>) -> Result<bool> {
 
         let professor_account = &mut *ctx.accounts.professor_account;
+
+        let professor_id_handler = &mut *ctx.accounts.professor_id_handler;
+        update_internally_initializated_id_generator(professor_id_handler);
+
         professor_account.id = general_id_generator(&mut ctx.accounts.professor_id_handler);
         professor_account.identifier_code_hash = digest(user_type_code);
         professor_account.authority = *ctx.accounts.authority.key;
@@ -60,6 +68,10 @@ pub mod teaching_project_handler {
     pub fn create_student(ctx: Context<CreateStudent>, user_type_code:String, subjects_array: Vec<u32>) -> Result<bool> {
 
         let student_account = &mut *ctx.accounts.student_account;
+
+        let student_id_handler = &mut *ctx.accounts.student_id_handler;
+        update_internally_initializated_id_generator(student_id_handler);
+
         student_account.id = general_id_generator(&mut ctx.accounts.student_id_handler);
         student_account.identifier_code_hash = digest(user_type_code);
         student_account.authority = *ctx.accounts.authority.key;
@@ -164,6 +176,7 @@ pub mod teaching_project_handler {
         proposal_account.expected_votes = (subject_info.number_of_students as u32 + subject_info.number_of_professors as u32) as u32 + EXTRA_VOTES_EXPECTED;
 
         //Initializating associated professor_proposal_account for possible future uses
+        update_internally_initializated_id_generator(&mut *ctx.accounts.professor_proposal_id_handler);
         associated_professor_proposal_account.id = general_id_generator(&mut ctx.accounts.professor_proposal_id_handler);
         associated_professor_proposal_account.original_proposal_id = proposal_account.id;
         associated_professor_proposal_account.name = proposal_account.title.clone();
@@ -214,6 +227,7 @@ pub mod teaching_project_handler {
         proposal_account.expected_votes = (subject_info.number_of_students as u32 + subject_info.number_of_professors as u32) as u32 + EXTRA_VOTES_EXPECTED;
 
         //Initializating associated professor_proposal_account for possible future uses
+        update_internally_initializated_id_generator(&mut *ctx.accounts.professor_proposal_id_handler);
         associated_professor_proposal_account.id = general_id_generator(&mut ctx.accounts.professor_proposal_id_handler);
         associated_professor_proposal_account.original_proposal_id = proposal_account.id;
         associated_professor_proposal_account.name = proposal_account.title.clone();
@@ -481,9 +495,36 @@ fn general_id_generator (id_handler_account: &mut Account<IdHandler>) ->  i32 {
     return id;
 }
 
+pub fn update_internally_initializated_id_generator(id_handler_account: &mut IdHandler) {
+
+    if id_handler_account.smaller_id_available == 0 {
+
+        id_handler_account.smaller_id_available += 1;
+
+    }
+}
+
+
+fn evaluate_professor_proposal_id_handler(id: i32) -> i32 {
+    if id == 0 { 1 } else { id }
+}
+
+fn initialize_professor_proposal_account(professor_proposal_account: &mut ProfessorProposal, timestamp_offset: i64) {
+
+    let publishing_timestamp = Clock::get().unwrap().unix_timestamp;
+    let ending_timestamp = publishing_timestamp + (timestamp_offset/2);
+ 
+    professor_proposal_account.publishing_timestamp = publishing_timestamp;
+    professor_proposal_account.ending_timestamp = ending_timestamp;
+    professor_proposal_account.state = ProfessorProposalState::Pending;
+ 
+ }
+ 
+
 fn votation_is_open (ending_timestamp_of_votation: i64) -> bool {
     if Clock::get().unwrap().unix_timestamp < ending_timestamp_of_votation {true} else {false}
 }
+
 
 fn proposal_has_reached_minimum_partitipation(supporting_votes: u32, against_votes: u32, expected_votes: u32) -> bool {
     return (supporting_votes + against_votes) >= expected_votes
@@ -498,16 +539,6 @@ fn proposal_has_reached_agreement(supporting_votes: u32, against_votes: u32) -> 
     return (supporting_votes as f32) / (total_votes) as f32 >= (2_f32/3_f32 as f32) 
 }
 
-fn initialize_professor_proposal_account(professor_proposal_account: &mut ProfessorProposal, timestamp_offset: i64) {
-
-   let publishing_timestamp = Clock::get().unwrap().unix_timestamp;
-   let ending_timestamp = publishing_timestamp + (timestamp_offset/2);
-
-   professor_proposal_account.publishing_timestamp = publishing_timestamp;
-   professor_proposal_account.ending_timestamp = ending_timestamp;
-   professor_proposal_account.state = ProfessorProposalState::Pending;
-
-}
 
 fn evaluating_professor_penalty (professor_proposal_account: &mut ProfessorProposal, timestamp_offset: i64) -> u8 {
     let current_timestamp = Clock::get().unwrap().unix_timestamp;
@@ -519,6 +550,7 @@ fn evaluating_professor_penalty (professor_proposal_account: &mut ProfessorPropo
     return penalty_counter;
         
 }
+
 
 fn evaluate_if_user_belong_to_subject(subjects: Vec<u32>, subject_code:u32) -> bool {
 
@@ -731,7 +763,7 @@ pub struct CreateDegree<'info> {
         bump,
         constraint = high_rank.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
         constraint = name.len() <= 500,
-        constraint = (faculty_id >= 0 && faculty_id < faculty_id_handler.smaller_id_available)
+        constraint = (faculty_id >= 1 && faculty_id < faculty_id_handler.smaller_id_available)
     )]
     pub degree_account: Account<'info, Degree>,
 
@@ -761,7 +793,7 @@ pub struct CreateSpecialty <'info> {
         bump,
         constraint = high_rank.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
         constraint = name.len() <= 500,
-        constraint = (degree_id >= 0 && degree_id < degree_id_handler.smaller_id_available)
+        constraint = (degree_id >= 1 && degree_id < degree_id_handler.smaller_id_available)
     )]
     pub specialty_account: Account<'info, Specialty>,
 
@@ -794,9 +826,8 @@ pub struct CreateSubject<'info> {
         seeds=[b"subject", subject_id_handler.smaller_id_available.to_le_bytes().as_ref()], 
         bump,
         constraint = high_rank.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
-        constraint = (degree_id >= 0) && (degree_id < degree_id_handler.smaller_id_available),
-        constraint = (specialty_id == -1) || (specialty_id >= 0 && specialty_id < specialty_id_handler.smaller_id_available),
-        constraint = code > 0
+        constraint = (degree_id >= 1) && (degree_id < degree_id_handler.smaller_id_available),
+        constraint = (specialty_id == -1) || (specialty_id >= 1 && specialty_id < specialty_id_handler.smaller_id_available)
     )]
     pub subject_account: Account<'info, Subject>,
 
@@ -849,7 +880,7 @@ pub struct CreateProposalByStudent <'info> {
     #[account(init,
         payer = authority,
         space = size_of::<ProfessorProposal>() + title.len() + 20,
-        seeds = [b"professorProposal", professor_proposal_id_handler.smaller_id_available.to_le_bytes().as_ref()],
+        seeds = [b"professorProposal", evaluate_professor_proposal_id_handler(professor_proposal_id_handler.smaller_id_available).to_le_bytes().as_ref()],
         bump,
     )]
     pub professor_proposal_account: Account<'info, ProfessorProposal>,
@@ -876,6 +907,7 @@ pub struct CreateProposalByStudent <'info> {
     pub code_id_subject_relation: Account<'info, CodeIdSubjectRelation>,
 
     pub system_program: Program<'info, System>
+
 }
 
 #[derive(Accounts)]
@@ -917,7 +949,7 @@ pub struct CreateProposalByProfessor <'info> {
     #[account(init,
               payer = authority,
               space = size_of::<ProfessorProposal>() + title.len() + 20,
-              seeds = [b"professorProposal", professor_proposal_id_handler.smaller_id_available.to_le_bytes().as_ref()],
+              seeds = [b"professorProposal", evaluate_professor_proposal_id_handler(professor_proposal_id_handler.smaller_id_available).to_le_bytes().as_ref()],
               bump,
     )]
     pub professor_proposal_account: Account<'info, ProfessorProposal>,
