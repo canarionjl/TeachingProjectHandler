@@ -81,10 +81,12 @@ const initializeProfessor = async (program: Program<TeachingProjectHandler>, aut
   const id_generator_pda = await findPDAforIdGenerator(program.programId, "professor")
   const high_rank_id_handler = await findPDAforIdGenerator(program.programId, "highRank")
   const codeIdRelation = await findPDAforCodeIdRelation(program.programId)
+  const systemInitialization = await findPDAforSystemInitialization(program.programId)
 
   const result = await program.methods.createProfessor("2222", subjects)
     .accounts({
       authority: authority.publicKey,
+      initializationSystemAccount: systemInitialization,
       professorIdHandler: id_generator_pda,
       highRankIdHandler: high_rank_id_handler,
       professorAccount: pda,
@@ -103,10 +105,12 @@ const initializeStudent = async (program: Program<TeachingProjectHandler>, autho
   const id_generator_pda = await findPDAforIdGenerator(program.programId, "student")
   const high_rank_id_handler = await findPDAforIdGenerator(program.programId, "highRank")
   const codeIdRelation = await findPDAforCodeIdRelation(program.programId)
+  const systemInitialization = await findPDAforSystemInitialization(program.programId)
 
   const result = await program.methods.createStudent("3333", subjects)
     .accounts({
       authority: authority.publicKey,
+      initializationSystemAccount: systemInitialization,
       studentIdHandler: id_generator_pda,
       highRankIdHandler: high_rank_id_handler,
       studentAccount: pda,
@@ -119,30 +123,26 @@ const initializeStudent = async (program: Program<TeachingProjectHandler>, autho
   return result;
 }
 
-const initializeIdGenerator = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, specification: string): Promise<String> => {
+const initializeSystem = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair): Promise<String> => {
 
-  const id_generator_pda = await findPDAforIdGenerator(program.programId, specification)
-
-  const result = await program.methods.createIdGeneratorFor(specification)
-    .accounts({
-      authority: authority.publicKey,
-      specificationIdHandler: id_generator_pda,
-      systemProgram: anchor.web3.SystemProgram.programId,
-    })
-    .signers([authority])
-    .rpc();
-
-  return result;
-}
-
-const initializeCodeIdSubjectRelation = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair): Promise<String> => {
-
+  const initialization_system_account = await findPDAforSystemInitialization(program.programId)
+  const degree_id_generator_pda = await findPDAforIdGenerator(program.programId, "degree")
+  const faculty_id_generator_pda = await findPDAforIdGenerator(program.programId, "faculty")
+  const specialty_id_generator_pda = await findPDAforIdGenerator(program.programId, "specialty")
+  const subject_id_generator_pda = await findPDAforIdGenerator(program.programId, "subject")
   const code_id_relation_account = await findPDAforCodeIdRelation(program.programId)
+  const high_rank_account = await findPDAforHighRank(program.programId, authority.publicKey)
 
-  const result = await program.methods.createCodeIdSubjectRelationFor()
+  const result = await program.methods.initializateNewSystem()
     .accounts({
       authority: authority.publicKey,
+      initializationSystemAccount: initialization_system_account,
+      highRankAccount: high_rank_account,
       codeIdSubjectRelation: code_id_relation_account,
+      degreeIdHandler: degree_id_generator_pda,
+      facultyIdHandler: faculty_id_generator_pda,
+      specialtyIdHandler: specialty_id_generator_pda,
+      subjectIdHandler: subject_id_generator_pda,
       systemProgram: anchor.web3.SystemProgram.programId,
     })
     .signers([authority])
@@ -156,11 +156,13 @@ const initializeFaculty = async (program: Program<TeachingProjectHandler>, autho
   const pda = await findPDAforFaculty(program.programId, id)
   const high_rank_pda = await findPDAforHighRank(program.programId, authority.publicKey)
   const id_generator_pda = await findPDAforIdGenerator(program.programId, "faculty")
+  const systemInitialization = await findPDAforSystemInitialization(program.programId)
 
 
   const result = await program.methods.createFaculty(name)
     .accounts({
       authority: authority.publicKey,
+      initializationSystemAccount: systemInitialization,
       facultyIdHandler: id_generator_pda,
       highRank: high_rank_pda,
       facultyAccount: pda,
@@ -178,11 +180,13 @@ const initializeDegree = async (program: Program<TeachingProjectHandler>, author
   const high_rank_pda = await findPDAforHighRank(program.programId, authority.publicKey)
   const id_generator_pda = await findPDAforIdGenerator(program.programId, "degree")
   const faculty_id_generator_pda = await findPDAforIdGenerator(program.programId, "faculty")
+  const systemInitialization = await findPDAforSystemInitialization(program.programId)
 
 
   const result = await program.methods.createDegree(name, faculty_id)
     .accounts({
       authority: authority.publicKey,
+      initializationSystemAccount: systemInitialization,
       degreeIdHandler: id_generator_pda,
       facultyIdHandler: faculty_id_generator_pda,
       highRank: high_rank_pda,
@@ -201,11 +205,13 @@ const initializeSpecialty = async (program: Program<TeachingProjectHandler>, aut
   const high_rank_pda = await findPDAforHighRank(program.programId, authority.publicKey)
   const id_generator_pda = await findPDAforIdGenerator(program.programId, "specialty")
   const degree_id_generator_pda = await findPDAforIdGenerator(program.programId, "degree")
+  const systemInitialization = await findPDAforSystemInitialization(program.programId)
 
 
   const result = await program.methods.createSpecialty(name, degree_id)
     .accounts({
       authority: authority.publicKey,
+      initializationSystemAccount: systemInitialization,
       specialtyIdHandler: id_generator_pda,
       degreeIdHandler: degree_id_generator_pda,
       highRank: high_rank_pda,
@@ -218,29 +224,30 @@ const initializeSpecialty = async (program: Program<TeachingProjectHandler>, aut
   return result;
 }
 
-const initializeSubject = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, id: number, name: string, degree_id: number, specialty_id: number, course: any, code: number): Promise<String> => {
+const initializeSubject = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, id: number, name: string, degree_id: number, specialty_id: number, course: any, code: number, reference:string): Promise<String> => {
 
   const pda = await findPDAforSubject(program.programId, id)
   const high_rank_pda = await findPDAforHighRank(program.programId, authority.publicKey)
   const id_generator_pda = await findPDAforIdGenerator(program.programId, "subject")
   const degree_id_generator_pda = await findPDAforIdGenerator(program.programId, "degree")
   const specialty_id_generator_pda = await findPDAforIdGenerator(program.programId, "specialty")
-  const professor_id_generator_pda = await findPDAforIdGenerator(program.programId, "professor")
-  const student_id_generator_pda = await findPDAforIdGenerator(program.programId, "student")
   const code_id_relation_pda = await findPDAforCodeIdRelation(program.programId)
+  const systemInitialization = await findPDAforSystemInitialization(program.programId)
+  const proposalIdHandlerForSubject = await findPDAforProposalIdGenerator(program.programId, false, code)
+  const professorProposalIdHandlerForSubject = await findPDAforProposalIdGenerator(program.programId, true, code)
 
-
-  const result = await program.methods.createSubject(name, degree_id, specialty_id, course, code)
+  const result = await program.methods.createSubject(name, degree_id, specialty_id, course, code, reference)
     .accounts({
       authority: authority.publicKey,
+      initializationSystemAccount: systemInitialization,
       highRank: high_rank_pda,
       subjectIdHandler: id_generator_pda,
       degreeIdHandler: degree_id_generator_pda,
       specialtyIdHandler: specialty_id_generator_pda,
-      professorIdHandler: professor_id_generator_pda,
-      studentIdHandler: student_id_generator_pda,
       subjectAccount: pda,
       codeIdSubjectRelationAccount: code_id_relation_pda,
+      proposalIdHandler: proposalIdHandlerForSubject,
+      professorProposalIdHandler: professorProposalIdHandlerForSubject,
       systemProgram: anchor.web3.SystemProgram.programId,
     })
     .signers([authority])
@@ -249,22 +256,22 @@ const initializeSubject = async (program: Program<TeachingProjectHandler>, autho
   return result;
 }
 
-const initializeProposalByStudent = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, id: number, title: string, content: string, subject_id: number, professor_proposal_id: number): Promise<String> => {
+const initializeProposalByStudent = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, id: number, title: string, content: string, subject_id: number, professor_proposal_id: number, subject_code: number): Promise<String> => {
 
-  const pda = await findPDAforProposal(program.programId, id)
+  const pda = await findPDAforProposal(program.programId, id, subject_code)
   const student_pda = await findPDAforStudent(program.programId, authority.publicKey)
-  const id_generator_pda = await findPDAforIdGenerator(program.programId, "proposal")
+  const id_generator_pda = await findPDAforProposalIdGenerator(program.programId, false, subject_code)
   const subject_pda = await findPDAforSubject(program.programId, subject_id)
   const subject_id_generator_pda = await findPDAforIdGenerator(program.programId, "subject")
-  const professor_proposal_pda = await findPDAforProfessorProposal(program.programId, professor_proposal_id)
-  const professor_proposal_id_handler = await findPDAforIdGenerator(program.programId, "professorProposal")
+  const professor_proposal_pda = await findPDAforProfessorProposal(program.programId, professor_proposal_id, subject_code)
+  const professor_proposal_id_handler = await findPDAforProposalIdGenerator(program.programId, true, subject_code)
   const code_id_relation_account = await findPDAforCodeIdRelation(program.programId)
-
-
+  const systemInitialization = await findPDAforSystemInitialization(program.programId)
 
   const result = await program.methods.createProposalByStudent(title, content)
     .accounts({
       authority: authority.publicKey,
+      initializationSystemAccount: systemInitialization,
       studentCreator: student_pda,
       proposalIdHandler: id_generator_pda,
       professorProposalIdHandler: professor_proposal_id_handler,
@@ -281,22 +288,24 @@ const initializeProposalByStudent = async (program: Program<TeachingProjectHandl
   return result;
 }
 
-const initializeProposalByProfessor = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, id: number, title: string, content: string, subject_id: number, professor_proposal_id: number): Promise<String> => {
+const initializeProposalByProfessor = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, id: number, title: string, content: string, subject_id: number, professor_proposal_id: number, subject_code: number): Promise<String> => {
 
-  const pda = await findPDAforProposal(program.programId, id)
+  const pda = await findPDAforProposal(program.programId, id, subject_code)
   const professor_pda = await findPDAforProfessor(program.programId, authority.publicKey)
-  const id_generator_pda = await findPDAforIdGenerator(program.programId, "proposal")
+  const id_generator_pda = await findPDAforProposalIdGenerator(program.programId, false, subject_code)
   const subject_pda = await findPDAforSubject(program.programId, subject_id)
   const subject_id_generator_pda = await findPDAforIdGenerator(program.programId, "subject")
-  const professor_proposal_pda = await findPDAforProfessorProposal(program.programId, professor_proposal_id)
-  const professor_proposal_id_handler = await findPDAforIdGenerator(program.programId, "professorProposal")
+  const professor_proposal_pda = await findPDAforProfessorProposal(program.programId, professor_proposal_id, subject_code)
+  const professor_proposal_id_handler = await findPDAforProposalIdGenerator(program.programId, true, subject_code)
   const code_id_relation_account = await findPDAforCodeIdRelation(program.programId)
+  const systemInitialization = await findPDAforSystemInitialization(program.programId)
 
 
 
   const result = await program.methods.createProposalByProfessor(title, content)
     .accounts({
       authority: authority.publicKey,
+      initializationSystemAccount: systemInitialization,
       professorCreator: professor_pda,
       proposalIdHandler: id_generator_pda,
       professorProposalIdHandler: professor_proposal_id_handler,
@@ -313,14 +322,14 @@ const initializeProposalByProfessor = async (program: Program<TeachingProjectHan
   return result;
 }
 
-const voteProposalByStudent = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, proposal_id: number, subject_id: number, profesor_proposal_id: number, vote: boolean): Promise<String> => {
+const voteProposalByStudent = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, proposal_id: number, subject_id: number, profesor_proposal_id: number, vote: boolean, subject_code: number): Promise<String> => {
 
   const subject_pda = await findPDAforSubject(program.programId, subject_id)
   const subject_id_generator_pda = await findPDAforIdGenerator(program.programId, "subject")
   const student_pda = await findPDAforStudent(program.programId, authority.publicKey)
-  const proposal_pda = await findPDAforProposal(program.programId, proposal_id)
-  const id_professor_generator_pda = await findPDAforIdGenerator(program.programId, "professorProposal")
-  const professor_proposal_pda = await findPDAforProfessorProposal(program.programId, profesor_proposal_id)
+  const proposal_pda = await findPDAforProposal(program.programId, proposal_id, subject_code)
+  const id_professor_generator_pda = await findPDAforProposalIdGenerator(program.programId, true, subject_code)
+  const professor_proposal_pda = await findPDAforProfessorProposal(program.programId, profesor_proposal_id, subject_code)
 
   const result = await program.methods.voteProposalByStudent(vote)
     .accounts({
@@ -338,19 +347,21 @@ const voteProposalByStudent = async (program: Program<TeachingProjectHandler>, a
   return result;
 }
 
-const updateProposalByProfessor = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, proposal_id: number, profesor_proposal_id: number): Promise<String> => {
+const updateProposalByProfessor = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, proposal_id: number, profesor_proposal_id: number, subject_code: number, subject_id: number, reference: string): Promise<String> => {
 
   const professor_account = await findPDAforProfessor(program.programId, authority.publicKey)
-  const proposal_pda = await findPDAforProposal(program.programId, proposal_id)
-  const professor_proposal_pda = await findPDAforProfessorProposal(program.programId, profesor_proposal_id)
+  const proposal_pda = await findPDAforProposal(program.programId, proposal_id, subject_code)
+  const professor_proposal_pda = await findPDAforProfessorProposal(program.programId, profesor_proposal_id, subject_code)
+  const subject_pda = await findPDAforSubject(program.programId, subject_id)
 
 
-  const result = await program.methods.updateProposalByProfessor()
+  const result = await program.methods.updateProposalByProfessor(reference)
     .accounts({
       authority: authority.publicKey,
       professorAccount: professor_account,
       proposalAccount: proposal_pda,
-      professorProposalAccount: professor_proposal_pda
+      professorProposalAccount: professor_proposal_pda,
+      subjectAccount: subject_pda
     })
     .signers([authority])
     .rpc(confirmOptions);
@@ -358,11 +369,12 @@ const updateProposalByProfessor = async (program: Program<TeachingProjectHandler
   return result;
 }
 
-const updateProposalByHighRank = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, proposal_id: number, profesor_proposal_id: number): Promise<String> => {
+const updateProposalByHighRank = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, proposal_id: number, profesor_proposal_id: number, subject_code: number, subject_id: number): Promise<String> => {
 
   const high_rank_account = await findPDAforHighRank(program.programId, authority.publicKey)
-  const proposal_pda = await findPDAforProposal(program.programId, proposal_id)
-  const professor_proposal_pda = await findPDAforProfessorProposal(program.programId, profesor_proposal_id)
+  const proposal_pda = await findPDAforProposal(program.programId, proposal_id, subject_code)
+  const professor_proposal_pda = await findPDAforProfessorProposal(program.programId, profesor_proposal_id, subject_code)
+  const subject_pda = await findPDAforSubject(program.programId, subject_id)
 
 
   const result = await program.methods.updateProposalByHighRank(true)
@@ -370,7 +382,8 @@ const updateProposalByHighRank = async (program: Program<TeachingProjectHandler>
       authority: authority.publicKey,
       highRankAccount: high_rank_account,
       proposalAccount: proposal_pda,
-      professorProposalAccount: professor_proposal_pda
+      professorProposalAccount: professor_proposal_pda,
+      subjectAccount: subject_pda
     })
     .signers([authority])
     .rpc(confirmOptions);
@@ -378,20 +391,21 @@ const updateProposalByHighRank = async (program: Program<TeachingProjectHandler>
   return result;
 }
 
-const giveCreditToStudent = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, proposal_id: number, student_creator_public_key: anchor.web3.PublicKey, identifier_code: string): Promise<String> => {
+const giveCreditToStudent = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, proposal_id: number, student_creator_public_key: anchor.web3.PublicKey, identifier_code: string, subject_code: number, subject_id: number): Promise<String> => {
 
   const high_rank_account = await findPDAforHighRank(program.programId, authority.publicKey)
-  const proposal_account_pda = await findPDAforProposal(program.programId, proposal_id)
+  const proposal_account_pda = await findPDAforProposal(program.programId, proposal_id, subject_code)
   const creator_account_pda = await findPDAforStudent(program.programId, student_creator_public_key)
   const mint = await findPDAforMint(program.programId)
   const [pda, bump] = await findPDAforMintAuthority(program.programId, mint, identifier_code)
+  const subject_account_pda = await findPDAforSubject(program.programId, subject_id)
 
   let mintAuthority: { pda: anchor.web3.PublicKey, bump: number };
   mintAuthority = { pda: pda, bump: bump };
 
   const associatedTokenAccount = await getAssociatedTokenAddress(mint, creator_account_pda, true);
 
-  const result = await program.methods.giveCreditsToWinningStudent("1111", mintAuthority.bump)
+  const result = await program.methods.giveCreditsToWinningStudent("1111", subject_code, mintAuthority.bump)
     .accounts({
       authority: authority.publicKey,
       highRankAccount: high_rank_account,
@@ -413,12 +427,12 @@ const giveCreditToStudent = async (program: Program<TeachingProjectHandler>, aut
 
 }
 
-const deleteRejectedProposalByHighRank = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, proposal_id: number, subject_id: number, professor_proposal_id: number): Promise<String> => {
+const deleteRejectedProposalByHighRank = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, proposal_id: number, subject_id: number, professor_proposal_id: number, subject_code: number): Promise<String> => {
 
-  const proposal_pda = await findPDAforProposal(program.programId, proposal_id)
+  const proposal_pda = await findPDAforProposal(program.programId, proposal_id, subject_code)
   const high_rank_pda = await findPDAforHighRank(program.programId, authority.publicKey)
   const subject_pda = await findPDAforSubject(program.programId, subject_id)
-  const professor_proposal_pda = await findPDAforProfessorProposal(program.programId, professor_proposal_id)
+  const professor_proposal_pda = await findPDAforProfessorProposal(program.programId, professor_proposal_id, subject_code)
 
   const result = await program.methods.deleteRejectedProposalAccount()
     .accounts({
@@ -432,17 +446,6 @@ const deleteRejectedProposalByHighRank = async (program: Program<TeachingProject
     .rpc();
 
   return result;
-}
-
-const getAllAccountsByAuthority = async (accounts: anchor.AccountClient<TeachingProjectHandler>, authority: anchor.web3.PublicKey) => {
-  return await accounts.all([
-    {
-      memcmp: {
-        offset: 8,
-        bytes: authority.toBase58()
-      }
-    }
-  ]);
 }
 
 const findPDAforHighRank = async (programId: anchor.web3.PublicKey, authority: anchor.web3.PublicKey): Promise<anchor.web3.PublicKey> => {
@@ -480,6 +483,19 @@ const findPDAforIdGenerator = async (programId: anchor.web3.PublicKey, account_i
   return pda;
 }
 
+const findPDAforProposalIdGenerator = async (programId: anchor.web3.PublicKey, is_professor: boolean, subject_code: number): Promise<anchor.web3.PublicKey> => {
+
+  let adding: string;
+  if (is_professor) { adding = 'professorP' } else { adding = 'p' }
+  let identifier: string = adding + 'roposalIdHandler';
+
+  const [pda, _bump] = anchor.web3.PublicKey.findProgramAddressSync(
+    [utf8.encode(identifier), numberToLEBytes(subject_code)],
+    programId
+  );
+  return pda;
+}
+
 const findPDAforFaculty = async (programId: anchor.web3.PublicKey, id: Number): Promise<anchor.web3.PublicKey> => {
   const [pda, _bump] = anchor.web3.PublicKey.findProgramAddressSync(
     [utf8.encode("faculty"), numberToLEBytes(id)],
@@ -512,17 +528,17 @@ const findPDAforSubject = async (programId: anchor.web3.PublicKey, id: Number): 
   return pda;
 }
 
-const findPDAforProposal = async (programId: anchor.web3.PublicKey, id: Number): Promise<anchor.web3.PublicKey> => {
+const findPDAforProposal = async (programId: anchor.web3.PublicKey, id: Number, subject_code: number): Promise<anchor.web3.PublicKey> => {
   const [pda, _bump] = anchor.web3.PublicKey.findProgramAddressSync(
-    [utf8.encode("proposal"), numberToLEBytes(id)],
+    [utf8.encode("proposal"), numberToLEBytes(id), numberToLEBytes(subject_code)],
     programId
   );
   return pda;
 }
 
-const findPDAforProfessorProposal = async (programId: anchor.web3.PublicKey, id: Number): Promise<anchor.web3.PublicKey> => {
+const findPDAforProfessorProposal = async (programId: anchor.web3.PublicKey, id: Number, subject_code: number): Promise<anchor.web3.PublicKey> => {
   const [pda, _bump] = anchor.web3.PublicKey.findProgramAddressSync(
-    [utf8.encode("professorProposal"), numberToLEBytes(id)],
+    [utf8.encode("professorProposal"), numberToLEBytes(id), numberToLEBytes(subject_code)],
     programId
   );
   return pda;
@@ -539,6 +555,14 @@ const findPDAforMint = async (programId: anchor.web3.PublicKey): Promise<anchor.
 const findPDAforCodeIdRelation = async (programId: anchor.web3.PublicKey): Promise<anchor.web3.PublicKey> => {
   const [pda, _bump] = anchor.web3.PublicKey.findProgramAddressSync(
     [utf8.encode("codeIdSubjectRelation")],
+    programId
+  );
+  return pda;
+}
+
+const findPDAforSystemInitialization = async (programId: anchor.web3.PublicKey): Promise<anchor.web3.PublicKey> => {
+  const [pda, _bump] = anchor.web3.PublicKey.findProgramAddressSync(
+    [utf8.encode("systemInitialization")],
     programId
   );
   return pda;
@@ -580,20 +604,28 @@ const fetchStudentAccount = async (program: Program<TeachingProjectHandler>, aut
   return await program.account.student.fetch(await findPDAforStudent(program.programId, authority))
 }
 
-const fetchProposalAccount = async (program: Program<TeachingProjectHandler>, id: Number) => {
-  return await program.account.proposal.fetch(await findPDAforProposal(program.programId, id))
+const fetchProposalAccount = async (program: Program<TeachingProjectHandler>, id: Number, subject_code: number) => {
+  return await program.account.proposal.fetch(await findPDAforProposal(program.programId, id, subject_code))
 }
 
-const fetchProfessorProposalAccount = async (program: Program<TeachingProjectHandler>, id: Number) => {
-  return await program.account.professorProposal.fetch(await findPDAforProfessorProposal(program.programId, id))
+const fetchProfessorProposalAccount = async (program: Program<TeachingProjectHandler>, id: number, subject_code: number) => {
+  return await program.account.professorProposal.fetch(await findPDAforProfessorProposal(program.programId, id, subject_code))
 }
 
 const fetchIdAccount = async (program: Program<TeachingProjectHandler>, account_info: string) => {
   return await program.account.idHandler.fetch(await findPDAforIdGenerator(program.programId, account_info))
 }
 
+const fetchProposalIdAccount = async (program: Program<TeachingProjectHandler>, is_professor: boolean, subject_code: number) => {
+  return await program.account.idHandler.fetch(await findPDAforProposalIdGenerator(program.programId, is_professor, subject_code))
+}
+
 const fetchCodeIdRelationAccount = async (program: Program<TeachingProjectHandler>) => {
   return await program.account.codeIdSubjectRelation.fetch(await findPDAforCodeIdRelation(program.programId))
+}
+
+const fetchSystemInitialization = async (program: Program<TeachingProjectHandler>) => {
+  return await program.account.systemInitialization.fetch(await findPDAforSystemInitialization(program.programId))
 }
 
 
@@ -660,16 +692,16 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
       assert.instanceOf(err, Error);
     }
 
-    //The new ID that should be available in the ID's generator after creating the new HighRank account
+  //   The new ID that should be available in the ID's generator after creating the new HighRank account
     const newIdAvailable = idExpected + 1
 
-    //Initializing HighRankAccount and getting the signature of the transaction
+  //   Initializing HighRankAccount and getting the signature of the transaction
     const signature = await initializeHighRank(program, wallet1);
 
-    //Confirming the previous transaction in the validator node
+  //   Confirming the previous transaction in the validator node
     await connection.confirmTransaction(signature.toString())
 
-    //Getting all the information relative to the transaction that has been carried out
+  //   Getting all the information relative to the transaction that has been carried out
     const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
 
     /* Getting the Return Log from the transaction information in order to get the boolean returned from the SC (Rust) function
@@ -679,21 +711,67 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     const reader_U8 = new Borsh.BinaryReader(buffer).readU8;
     const program_return = Boolean(reader_U8);
 
-    //Fetching the data of the new account created through its PDA
+  //   Fetching the data of the new account created through its PDA
     const newHighRankAccount = await fetchHighRankAccount(program, wallet1.publicKey);
 
-    //Getting the data of the HighRank ID's generator
+  //   Getting the data of the HighRank ID's generator
     const highRankIdGeneratorAfterCreating = await fetchIdAccount(program, "highRank");
 
 
-    //The ID of the new HighRank Account must be equal to the idExpected param (which is the ID provided by the ID's generator for HighRank)
+  //   The ID of the new HighRank Account must be equal to the idExpected param (which is the ID provided by the ID's generator for HighRank)
     expect(new anchor.BN(newHighRankAccount.id).eq(new anchor.BN(idExpected))).to.be.true;
 
-    // The new smaller availabled ID on the ID's generator must be equal to the param newIdAvailable (i.e. the new id available must have been incremented in +1)
+  //   The new smaller availabled ID on the ID's generator must be equal to the param newIdAvailable (i.e. the new id available must have been incremented in +1)
     expect(new anchor.BN(highRankIdGeneratorAfterCreating.smallerIdAvailable).eq(new anchor.BN(newIdAvailable))).to.be.true;
 
-    // The identifierCode hash must be equal to the sha256 hash of '1111' (which is the identifier of every highRank to have certain privileges)
+  //   The identifierCode hash must be equal to the sha256 hash of '1111' (which is the identifier of every highRank to have certain privileges)
     assert.equal(newHighRankAccount.identifierCodeHash, CryptoJS.SHA256("1111").toString());
+
+  //   The program must return true if everything is correct
+    expect(program_return).to.be.true;
+
+  });
+
+  it("System is initializated properly", async () => {
+
+    await initializeHighRank(program, wallet1);
+
+    // Giving extra funds to the HighRank to pay the initializacion space for the accounts
+    getExtraFunds(connection, 50, wallet1)
+    getExtraFunds(connection, 50, wallet1)
+
+
+    // Initializing the system by the HighRank owed by wallet1
+    const signature = await initializeSystem(program, wallet1)
+
+    // Confirming the previous transaction in the validator node
+    await connection.confirmTransaction(signature.toString())
+
+    // Getting all the information relative to the transaction that has been carried out
+    const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
+
+    // Getting the Return Log from the transaction information in order to get the boolean returned from the SC (Rust) function
+
+    const [key, data, buffer] = getReturnLog(transaction);
+    const reader_U8 = new Borsh.BinaryReader(buffer).readU8;
+    const program_return = Boolean(reader_U8);
+
+    // Fetching the system account and IdHandler's that have been initializated
+    const newSystemAccount = await fetchSystemInitialization(program)
+    const degreeIdHandler = await fetchIdAccount(program, "degree")
+    const facultyIdHandler = await fetchIdAccount(program, "faculty")
+    const specialtyIdHandler = await fetchIdAccount(program, "specialty")
+    const subjectIdHandler = await fetchIdAccount(program, "subject")
+
+
+    // The newSystemAccount must have its param system_is_initializated as 'true'
+    expect(newSystemAccount.systemIsInitialized).to.be.true;
+
+    // The new ID Handler's must have their smallerIdAvailable param with '1' value
+    expect(new anchor.BN(degreeIdHandler.smallerIdAvailable).eq(new anchor.BN(1))).to.be.true;
+    expect(new anchor.BN(facultyIdHandler.smallerIdAvailable).eq(new anchor.BN(1))).to.be.true;
+    expect(new anchor.BN(specialtyIdHandler.smallerIdAvailable).eq(new anchor.BN(1))).to.be.true;
+    expect(new anchor.BN(subjectIdHandler.smallerIdAvailable).eq(new anchor.BN(1))).to.be.true;
 
     // The program must return true if everything is correct
     expect(program_return).to.be.true;
@@ -727,20 +805,6 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     await getExtraFunds(connection, 50, wallet2);
     await getExtraFunds(connection, 50, wallet2);
 
-
-    var correct = true;
-
-    try {
-      await fetchCodeIdRelationAccount(program);
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      correct = false;
-    }
-
-    if (!correct) {
-      await initializeCodeIdSubjectRelation(program, wallet2);
-    }
 
     // Initializing ProfessorAccount and getting the signature of the transaction
     const signature = await initializeProfessor(program, wallet2, [43222, 43212]);
@@ -794,7 +858,7 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
       return;
     }
 
-    //The test is expecting an error, so it will fail if an error is not raised
+    // The test is expecting an error, so it will fail if an error is not raised
     assert.fail("Expected an error to be thrown");
 
   });
@@ -814,16 +878,16 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
       assert.instanceOf(err, Error);
     }
 
-    //The new ID that should be available in the ID's generator after creating the new Professor account
+    // The new ID that should be available in the ID's generator after creating the new Professor account
     const newIdAvailable = idExpected + 1
 
-    //Initializing StudentAccount and getting the signature of the transaction
-    const signature = await initializeStudent(program, wallet3, [43222, 43212]);
+    // Initializing StudentAccount and getting the signature of the transaction
+    const signature = await initializeStudent(program, wallet3, [43222, 43212, 43123, 43124, 43125, 43126, 43127, 43128]);
 
-    //Confirming the previous transaction in the validator node
+    // Confirming the previous transaction in the validator node
     await connection.confirmTransaction(signature.toString())
 
-    //Getting all the information relative to the transaction that has been carried out
+    // Getting all the information relative to the transaction that has been carried out
     const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
 
     /* Getting the Return Log from the transaction information in order to get the boolean returned from the SC (Rust) function
@@ -833,65 +897,46 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     const reader_U8 = new Borsh.BinaryReader(buffer).readU8;
     const program_return = Boolean(reader_U8);
 
-    //Fetching the data of the new account created through its PDA
+    // Fetching the data of the new account created through its PDA
     const newStudentAccount = await fetchStudentAccount(program, wallet3.publicKey);
 
-    //Getting the data of the Student ID's generator
+    // Getting the data of the Student ID's generator
     const studentIdGeneratorAfterCreating = await fetchIdAccount(program, "student");
 
-    //The ID of the new Student Account must be equal to the idExpected param (which is the ID provided by the ID's generator for Students)
+    // The ID of the new Student Account must be equal to the idExpected param (which is the ID provided by the ID's generator for Students)
     expect(new anchor.BN(newStudentAccount.id).eq(new anchor.BN(idExpected))).to.be.true;
 
     // The new smaller availabled ID on the ID's generator must be equal to the param newIdAvailable (i.e. the new id available must have been incremented in +1)
     expect(new anchor.BN(studentIdGeneratorAfterCreating.smallerIdAvailable).eq(new anchor.BN(newIdAvailable))).to.be.true;
 
-    //The identifierCode hash must be equal to the sha256 hash of '1111' (which is the identifier of every highRank to have certain privileges)
+    // The identifierCode hash must be equal to the sha256 hash of '1111' (which is the identifier of every highRank to have certain privileges)
     assert.equal(newStudentAccount.identifierCodeHash, CryptoJS.SHA256("3333").toString());
 
-    expect(newStudentAccount.subjects).to.deep.equal([43222, 43212]);
+    expect(newStudentAccount.subjects).to.deep.equal([43222, 43212, 43123, 43124, 43125, 43126, 43127, 43128]);
 
-    //The program must return true if everything is correct
+    // The program must return true if everything is correct
     expect(program_return).to.be.true;
   });
 
   it("Faculty is properly initializated", async () => {
 
-    //Initializating highRank and giving extra funds (SOL) to wallet1 (which is allowed by a HighRank user)
+    // Initializating highRank and giving extra funds (SOL) to wallet1 (which is allowed by a HighRank user)
     await initializeHighRank(program, wallet1)
     getExtraFunds(connection, 50, wallet1)
 
-    var correct = true;
     var idExpected = 1;
 
-    /*
-     * Check if ID's generator for HighRank accounts exist --> 
-     * If so, the smaller ID available is obtained from it and saved in 'idExpected'
-     * If not, the new ID will be 0 since no ID's generator created implies no HighRank Account has been created previously
-    */
-    try {
-      const account = await fetchIdAccount(program, "faculty");
-      idExpected = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      correct = false;
-    }
-
-    /*
-    * IdGenerator must be generated independently (unlike user's ID's generators) if it does not exist yet
-    */
-    if (!correct) {
-      await initializeIdGenerator(program, wallet1, "faculty")
-    }
-
+    // Getting the ID generator that has been previously initializated by a HighRank
+    const account = await fetchIdAccount(program, "faculty");
+    idExpected = account.smallerIdAvailable
 
     // Initializing FacultyAccount and getting the signature of the transaction
     const signature = await initializeFaculty(program, wallet1, idExpected, "Asignatura de prueba")
 
-    //Confirming the previous transaction in the validator node
+    // Confirming the previous transaction in the validator node
     await connection.confirmTransaction(signature.toString())
 
-    //Getting all the information relative to the transaction that has been carried out
+    // Getting all the information relative to the transaction that has been carried out
     const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
 
     /* Getting the Return Log from the transaction information in order to get the boolean returned from the SC (Rust) function
@@ -901,13 +946,13 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     const reader_U8 = new Borsh.BinaryReader(buffer).readU8;
     const program_return = Boolean(reader_U8);
 
-    //Fetching the data of the new account created through its PDA
+    // Fetching the data of the new account created through its PDA
     const newFacultyAccount = await fetchFacultyAccount(program, idExpected);
 
-    //Getting the data of the Faculty ID's generator
+    // Getting the data of the Faculty ID's generator
     const FacultyIdGeneratorAccount = await fetchIdAccount(program, "faculty");
 
-    //The ID of the new Faculty Account must be equal to the idExpected param (which is the ID provided by the ID's generator for Faculty)
+    // The ID of the new Faculty Account must be equal to the idExpected param (which is the ID provided by the ID's generator for Faculty)
     expect(new anchor.BN(newFacultyAccount.id).eq(new anchor.BN(idExpected))).to.be.true;
 
     // The new smaller availabled ID on the ID's generator must be equal to 'idExpected' incremented in +1)
@@ -922,21 +967,11 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     await initializeHighRank(program, wallet1);
     getExtraFunds(connection, 50, wallet1);
 
-    var correct = true;
     var idExpected = 1;
 
-    try {
-      const account = await fetchIdAccount(program, "degree");
-      idExpected = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      correct = false;
-    }
 
-    if (!correct) {
-      await initializeIdGenerator(program, wallet1, "degree")
-    }
+    const account = await fetchIdAccount(program, "degree");
+    idExpected = account.smallerIdAvailable
 
     const signature = await initializeDegree(program, wallet1, idExpected, "Grado de prueba perteneciente a Facultad con id=0", 1)
     await connection.confirmTransaction(signature.toString())
@@ -960,21 +995,12 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     await initializeHighRank(program, wallet1)
     getExtraFunds(connection, 50, wallet1) //wallet1 is allowed by a HighRank
 
-    var correct = true;
     var idExpected = 1;
 
-    try {
-      const account = await fetchIdAccount(program, "specialty");
-      idExpected = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      correct = false;
-    }
 
-    if (!correct) {
-      await initializeIdGenerator(program, wallet1, "specialty")
-    }
+    const account = await fetchIdAccount(program, "specialty");
+    idExpected = account.smallerIdAvailable
+
 
     const signature = await initializeSpecialty(program, wallet1, idExpected, "Especialidad de prueba", 1)
     await connection.confirmTransaction(signature.toString())
@@ -998,21 +1024,10 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
 
     await initializeHighRank(program, wallet1);
     getExtraFunds(connection, 50, wallet1);
-    var correct = true;
     var idExpected = 1;
 
-    try {
-      const account = await fetchIdAccount(program, "specialty");
-      idExpected = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      correct = false;
-    }
-
-    if (!correct) {
-      await initializeIdGenerator(program, wallet1, "specialty")
-    }
+    const account = await fetchIdAccount(program, "specialty");
+    idExpected = account.smallerIdAvailable
 
     /*
      * Account cannot be created since the provided ID is invalid (less than 0)
@@ -1036,35 +1051,24 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     await initializeHighRank(program, wallet1)
     getExtraFunds(connection, 50, wallet1) //wallet1 is allowed by a HighRank
 
-    //Fetching the codeIdSubject relation before carrying out the test 
+    // Fetching the codeIdSubject relation before carrying out the test 
     const codeIdSubjectRelationBefore = await fetchCodeIdRelationAccount(program);
 
-    //creating a new aux professor
+    // creating a new aux professor
     const auxSignature = await initializeProfessor(program, wallet4, [43111, 44323]);
     await connection.confirmTransaction(auxSignature.toString())
 
     getExtraFunds(connection, 50, wallet1) //wallet1 is allowed by a HighRank
-    var correct = true;
     var idExpected = 1;
 
-    try {
-      const account = await fetchIdAccount(program, "subject");
-      idExpected = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      correct = false;
-    }
 
-    if (!correct) {
-      await initializeIdGenerator(program, wallet1, "subject")
-    }
-
+    const account = await fetchIdAccount(program, "subject");
+    idExpected = account.smallerIdAvailable
 
     /* Due to a previous test --> there will always be a professor with ID '0' 
      * The aux professor's id is passed as part of the array of professors' id via 'auxProfessorAccount.id'
     */
-    const signature = await initializeSubject(program, wallet1, idExpected, "Especialidad de prueba", 1, 1, { first: {} }, 43111)
+    const signature = await initializeSubject(program, wallet1, idExpected, "Especialidad de prueba", 1, 1, { first: {} }, 43111, "QmPRKpTKznUt6sU8yjYBwWaECVBVBF8nMiL77W2hkhVsQs")
     await connection.confirmTransaction(signature.toString())
     const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
     const [key, data, buffer] = getReturnLog(transaction);
@@ -1079,10 +1083,12 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     expect(new anchor.BN(subjectIdGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected + 1))).to.be.true;
     expect(new anchor.BN(newSubjectAccount.degreeId).eq(new anchor.BN(1))).to.be.true;
 
-    //Checking if the course is equal to SubjectCourse::First (enum in Rust)
+    assert.equal("QmPRKpTKznUt6sU8yjYBwWaECVBVBF8nMiL77W2hkhVsQs", newSubjectAccount.teachingProjectReference)
+
+    // Checking if the course is equal to SubjectCourse::First (enum in Rust)
     expect(newSubjectAccount.course).to.deep.equal({ first: {} });
 
-    //The program return data must be the boolean 'true'
+    // The program return data must be the boolean 'true'
     expect(program_return).to.be.true;
 
   });
@@ -1092,24 +1098,15 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     await initializeHighRank(program, wallet1)
 
     getExtraFunds(connection, 50, wallet1) //wallet1 is allowed by a HighRank
-    var correct = true;
     var idExpected = 1;
 
-    try {
-      const account = await fetchIdAccount(program, "subject");
-      idExpected = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      correct = false;
-    }
 
-    if (!correct) {
-      await initializeIdGenerator(program, wallet1, "subject")
-    }
+    const account = await fetchIdAccount(program, "subject");
+    idExpected = account.smallerIdAvailable
+
 
     try {
-      await initializeSubject(program, wallet1, idExpected, "Especialidad de prueba", 1, 1, { first: {} }, -43112)
+      await initializeSubject(program, wallet1, idExpected, "Especialidad de prueba", 1, 1, { first: {} }, -43112, "QmPRKpTKznUt6sU8yjYBwWaECVBVBF8nMiL77W2hkhVsQs")
     } catch (err) {
       assert.instanceOf(err, Error);
       assert.include(err.toString(), "RangeError [ERR_OUT_OF_RANGE]");
@@ -1132,23 +1129,15 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     // Initializing new subject and fetching it
 
     var subjectId = 1;
-    var subjectIdGeneratorExists = true;
     const subjectCode = 43600;
 
-    try {
-      const account = await fetchIdAccount(program, "subject");
-      subjectId = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      subjectIdGeneratorExists = false
-    }
 
-    if (!subjectIdGeneratorExists) {
-      await initializeIdGenerator(program, wallet1, "subject")
-    }
+    const subjectIdAccount = await fetchIdAccount(program, "subject");
+    subjectId = subjectIdAccount.smallerIdAvailable
 
-    const subjectSignature = await initializeSubject(program, wallet1, subjectId, "Asignatura de prueba", 1, 1, { second: {} }, subjectCode)
+
+
+    const subjectSignature = await initializeSubject(program, wallet1, subjectId, "Asignatura de prueba", 1, 1, { second: {} }, subjectCode, "QmPRKpTKznUt6sU8yjYBwWaECVBVBF8nMiL77W2hkhVsQs")
     await connection.confirmTransaction(subjectSignature.toString())
 
     const newSubjectAccount = await fetchSubjectAccount(program, subjectId);
@@ -1162,46 +1151,37 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     console.log(codeIdSubjectRelationAfter.keyId)
     console.log(codeIdSubjectRelationAfter.codeValue)
 
-    //Creating new student
+    // Creating new student
 
     await initializeStudent(program, wallet3, [subjectCode]);
     getExtraFunds(connection, 50, wallet3) // wallet3 is allowed by a Student
 
-    //Creating new proposal
+    // Creating new proposal
 
-    var correct = true;
     var idExpected = 1;
     var professorProposalIdExpected = 1;
 
-    try {
-      const account = await fetchIdAccount(program, "proposal");
-      idExpected = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      correct = false;
-    }
 
-    if (!correct) {
-      await initializeIdGenerator(program, wallet3, "proposal")
-    }
+    const account = await fetchProposalIdAccount(program, false, newSubjectAccount.code)
+    idExpected = account.smallerIdAvailable
+
 
     // Getting the professorProposal's id from professorProposalIdGenerator and if it does not exist, the ID expected (and used for the calculation of PDA) must be 0
     try {
-      const account = await fetchIdAccount(program, "professorProposal");
+      const account = await fetchProposalIdAccount(program, true, newSubjectAccount.code)
       professorProposalIdExpected = account.smallerIdAvailable
     } catch (err) {
       assert.instanceOf(err, Error);
       assert.include(err.toString(), "Account does not exist");
     }
 
-    const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta de prueba", "Desarollo o contenido de la propuesta de prueba", newSubjectAccount.id, professorProposalIdExpected)
+    const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta de prueba", "Desarollo o contenido de la propuesta de prueba", newSubjectAccount.id, professorProposalIdExpected, newSubjectAccount.code)
     await connection.confirmTransaction(signature.toString())
     const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
     const [key, data, buffer] = getReturnLog(transaction);
 
-    const newProposalAccount = await fetchProposalAccount(program, idExpected);
-    const proposalIdGeneratorAccount = await fetchIdAccount(program, "proposal");
+    const newProposalAccount = await fetchProposalAccount(program, idExpected, newSubjectAccount.code);
+    const proposalIdGeneratorAccount = await fetchProposalIdAccount(program, false, newSubjectAccount.code)
     const studentAccount = await fetchStudentAccount(program, wallet3.publicKey)
     const subjectAccount = await fetchSubjectAccount(program, newProposalAccount.subjectId)
 
@@ -1211,17 +1191,17 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     expect(new anchor.BN(newProposalAccount.id).eq(new anchor.BN(idExpected))).to.be.true;
     expect(new anchor.BN(proposalIdGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected + 1))).to.be.true;
 
-    //Checking that the subjectId of the proposal is correct (the subject that the proposal is derived from)
-    expect(new anchor.BN(newProposalAccount.subjectId).eq(new anchor.BN(subjectId))).to.be.true;
+    // Checking that the subjectId of the proposal is correct (the subject that the proposal is derived from)
+    expect(new anchor.BN(newProposalAccount.subjectId).eq(new anchor.BN(subjectAccount.id))).to.be.true;
 
-    //The ending_timestamp field must be equal to the publishingTimestamp plus 1 month (duration of the proposal) which is equal to 2592000 seconds in Unix Timestamp format
+    // The ending_timestamp field must be equal to the publishingTimestamp plus 1 month (duration of the proposal) which is equal to 2592000 seconds in Unix Timestamp format
     expect(Number(newProposalAccount.publishingTimestamp) + 2592000).eq(Number(newProposalAccount.endingTimestamp));
 
-    //The ID of the creator (sender) of the transaction must be properly registered in the field creatorId in the proposal
+    // The ID of the creator (sender) of the transaction must be properly registered in the field creatorId in the proposal
     expect(new anchor.BN(studentAccount.id).eq(new anchor.BN(newProposalAccount.creatorId))).to.be.true;
 
-    //The expected votes (as established in the SC) must be equal to the amount of professors and students that owe the subject (1 students and 0 teachers + 20 extra votes expected)
-    //20 votes are added in order to bear in mind the votes of professionals that are not registered in the subjects neither as students nor as professors
+    // The expected votes (as established in the SC) must be equal to the amount of professors and students that owe the subject (1 students and 0 teachers + 20 extra votes expected)
+    // 20 votes are added in order to bear in mind the votes of professionals that are not registered in the subjects neither as students nor as professors
     expect(new anchor.BN(newProposalAccount.expectedVotes).eq(new anchor.BN(21))).to.be.true;
 
     expect(program_return).to.be.true;
@@ -1234,68 +1214,53 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     // Initializing new subject and fetching it
 
     var subjectId = 1;
-    var subjectIdGeneratorExists = true;
     const subjectCode = 43700;
 
-    try {
-      const account = await fetchIdAccount(program, "subject");
-      subjectId = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      subjectIdGeneratorExists = false
-    }
 
-    if (!subjectIdGeneratorExists) {
-      await initializeIdGenerator(program, wallet1, "subject")
-    }
+    const subjectIdAccount = await fetchIdAccount(program, "subject");
+    subjectId = subjectIdAccount.smallerIdAvailable
 
-    const subjectSignature = await initializeSubject(program, wallet1, subjectId, "Asignatura de prueba", 1, 1, { second: {} }, subjectCode)
+
+
+    const subjectSignature = await initializeSubject(program, wallet1, subjectId, "Asignatura de prueba", 1, 1, { second: {} }, subjectCode, "QmPRKpTKznUt6sU8yjYBwWaECVBVBF8nMiL77W2hkhVsQs")
     await connection.confirmTransaction(subjectSignature.toString())
 
     const newSubjectAccount = await fetchSubjectAccount(program, subjectId);
     const codeIdSubjectRelationAfter = await fetchCodeIdRelationAccount(program);
 
-    //Creating new professor
+    // Creating new professor
 
     await initializeProfessor(program, wallet2, [subjectCode]);
-    getExtraFunds(connection, 50, wallet2) // wallet3 is allowed by a Student
+    getExtraFunds(connection, 50, wallet2) 
 
-    //Creating new proposal
+    // Creating new proposal
 
     var correct = true;
     var idExpected = 1;
     var professorProposalIdExpected = 1;
 
-    try {
-      const account = await fetchIdAccount(program, "proposal");
-      idExpected = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      correct = false;
-    }
 
-    if (!correct) {
-      await initializeIdGenerator(program, wallet3, "proposal")
-    }
+    const account = await fetchProposalIdAccount(program, false, newSubjectAccount.code)
+    idExpected = account.smallerIdAvailable
+
+
 
     // Getting the professorProposal's id from professorProposalIdGenerator and if it does not exist, the ID expected (and used for the calculation of PDA) must be 0
     try {
-      const account = await fetchIdAccount(program, "professorProposal");
+      const account = await fetchProposalIdAccount(program, true, newSubjectAccount.code)
       professorProposalIdExpected = account.smallerIdAvailable
     } catch (err) {
       assert.instanceOf(err, Error);
       assert.include(err.toString(), "Account does not exist");
     }
 
-    const signature = await initializeProposalByProfessor(program, wallet2, idExpected, "Propuesta de prueba", "Desarollo o contenido de la propuesta de prueba", newSubjectAccount.id, professorProposalIdExpected)
+    const signature = await initializeProposalByProfessor(program, wallet2, idExpected, "Propuesta de prueba", "Desarollo o contenido de la propuesta de prueba", newSubjectAccount.id, professorProposalIdExpected, newSubjectAccount.code)
     await connection.confirmTransaction(signature.toString())
     const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
     const [key, data, buffer] = getReturnLog(transaction);
 
-    const newProposalAccount = await fetchProposalAccount(program, idExpected);
-    const proposalIdGeneratorAccount = await fetchIdAccount(program, "proposal");
+    const newProposalAccount = await fetchProposalAccount(program, idExpected, newSubjectAccount.code);
+    const proposalIdGeneratorAccount = await fetchProposalIdAccount(program, false, newSubjectAccount.code)
     const professorAccount = await fetchProfessorAccount(program, wallet2.publicKey)
 
     const reader_U8 = new Borsh.BinaryReader(buffer).readU8;
@@ -1304,17 +1269,17 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     expect(new anchor.BN(newProposalAccount.id).eq(new anchor.BN(idExpected))).to.be.true;
     expect(new anchor.BN(proposalIdGeneratorAccount.smallerIdAvailable).eq(new anchor.BN(idExpected + 1))).to.be.true;
 
-    //Checking that the subjectId of the proposal is correct (the subject that the proposal is derived from)
+    // Checking that the subjectId of the proposal is correct (the subject that the proposal is derived from)
     expect(new anchor.BN(newProposalAccount.subjectId).eq(new anchor.BN(subjectId))).to.be.true;
 
-    //The ending_timestamp field must be equal to the publishingTimestamp plus 1 month (duration of the proposal) which is equal to 2592000 seconds in Unix Timestamp format
+    // The ending_timestamp field must be equal to the publishingTimestamp plus 1 month (duration of the proposal) which is equal to 2592000 seconds in Unix Timestamp format
     expect(Number(newProposalAccount.publishingTimestamp) + 2592000).eq(Number(newProposalAccount.endingTimestamp));
 
-    //The ID of the creator (sender) of the transaction must be properly registered in the field creatorId in the proposal
+    // The ID of the creator (sender) of the transaction must be properly registered in the field creatorId in the proposal
     expect(new anchor.BN(professorAccount.id).eq(new anchor.BN(newProposalAccount.creatorId))).to.be.true;
 
-    //The expected votes (as established in the SC) must be equal to the amount of professors and students that owe the subject (1 students and 0 teachers + 20 extra votes expected)
-    //20 votes are added in order to bear in mind the votes of professionals that are not registered in the subjects neither as students nor as professors
+    // The expected votes (as established in the SC) must be equal to the amount of professors and students that owe the subject (1 students and 0 teachers + 20 extra votes expected)
+    // 20 votes are added in order to bear in mind the votes of professionals that are not registered in the subjects neither as students nor as professors
     expect(new anchor.BN(newProposalAccount.expectedVotes).eq(new anchor.BN(21))).to.be.true;
 
     expect(program_return).to.be.true;
@@ -1322,152 +1287,119 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
 
   it("Proposal is properly voted by a student", async () => {
 
-    //INITIALIZATING HIGH RANK 
+    // INITIALIZATING HIGH RANK 
     await initializeHighRank(program, wallet1);
 
-    //INITIALIZATING A SUBJECT
+    // INITIALIZATING A SUBJECT
 
     var subjectId = 1;
-    var subjectIdGeneratorExists = true;
     const subjectCode = 43123;
 
-    try {
-      const account = await fetchIdAccount(program, "subject");
-      subjectId = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      subjectIdGeneratorExists = false
-    }
 
-    if (!subjectIdGeneratorExists) {
-      await initializeIdGenerator(program, wallet1, "subject")
-    }
+    const subjectAccount = await fetchIdAccount(program, "subject");
+    subjectId = subjectAccount.smallerIdAvailable
 
-    const subjectSignature = await initializeSubject(program, wallet1, subjectId, "Asignatura de prueba", 1, 1, { second: {} }, subjectCode)
+
+    const subjectSignature = await initializeSubject(program, wallet1, subjectId, "Asignatura de prueba", 1, 1, { second: {} }, subjectCode, "QmPRKpTKznUt6sU8yjYBwWaECVBVBF8nMiL77W2hkhVsQs")
     await connection.confirmTransaction(subjectSignature.toString())
 
     const newSubjectAccount = await fetchSubjectAccount(program, subjectId);
 
 
-    //INITIALIZATING STUDENT
+    // INITIALIZATING STUDENT
 
     await initializeStudent(program, wallet3, [subjectCode]);
     getExtraFunds(connection, 50, wallet3)
-    var correct = true;
+
     var idExpected = 1;
     var professorProposalIdExpected = 1;
 
 
-    //CREATING NEW PROPOSAL (just exactly the previous tests)
-    try {
-      const account = await fetchIdAccount(program, "proposal");
-      idExpected = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      correct = false;
-    }
+    // CREATING NEW PROPOSAL (just exactly the previous tests)
 
-    if (!correct) {
-      await initializeIdGenerator(program, wallet3, "proposal")
-    }
+    const account = await fetchProposalIdAccount(program, false, newSubjectAccount.code)
+    idExpected = account.smallerIdAvailable
+
+
+
 
     try {
-      const account = await fetchIdAccount(program, "professorProposal");
+      const account = await fetchProposalIdAccount(program, true, newSubjectAccount.code)
       professorProposalIdExpected = account.smallerIdAvailable
     } catch (err) {
       assert.instanceOf(err, Error);
       assert.include(err.toString(), "Account does not exist");
     }
 
-    const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta Correcta", "Desarollo o contenido de la propuesta de prueba correcta", newSubjectAccount.id, professorProposalIdExpected)
+    const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta Correcta", "Desarollo o contenido de la propuesta de prueba correcta", newSubjectAccount.id, professorProposalIdExpected, newSubjectAccount.code)
     await connection.confirmTransaction(signature.toString())
 
 
-    //Fetching the proposal account before voting
-    const proposalAccount = await fetchProposalAccount(program, idExpected);
+    // Fetching the proposal account before voting
+    const proposalAccount = await fetchProposalAccount(program, idExpected, newSubjectAccount.code);
 
 
     // VOTING THE PROPOSAL (by the creator)
-    const vote_signature = await voteProposalByStudent(program, wallet3, Number(proposalAccount.id), Number(proposalAccount.subjectId), Number(proposalAccount.associatedProfessorProposalId), true)
+    const vote_signature = await voteProposalByStudent(program, wallet3, Number(proposalAccount.id), Number(proposalAccount.subjectId), Number(proposalAccount.associatedProfessorProposalId), true, newSubjectAccount.code)
     await connection.confirmTransaction(vote_signature.toString())
     const transaction = await connection.getTransaction(vote_signature.toString(), { commitment: "confirmed" });
 
 
-    //Getting the Program Return
+    // Getting the Program Return
     const [key, data, buffer] = getReturnLog(transaction);
     const program_return = new Borsh.BinaryReader(buffer).readString();
 
-    //Fetching the proposal account after voting
-    const proposalAccountAfterVoting = await fetchProposalAccount(program, idExpected);
+    // Fetching the proposal account after voting
+    const proposalAccountAfterVoting = await fetchProposalAccount(program, idExpected, newSubjectAccount.code);
 
-    //The creator is voting in favor of the proposal, so the supporting_votes field must be incremented in +1
+    // The creator is voting in favor of the proposal, so the supporting_votes field must be incremented in +1
     expect(new anchor.BN(proposalAccount.supportingVotes + 1).eq(new anchor.BN(proposalAccountAfterVoting.supportingVotes))).to.be.true;
 
-    //The against_votes field must remain equal (i.e. with value 0)
+    // The against_votes field must remain equal (i.e. with value 0)
     expect(new anchor.BN(proposalAccount.againstVotes).eq(new anchor.BN(proposalAccountAfterVoting.againstVotes))).to.be.true;
 
-    //After voting, the votation must continue being 'VotationInProgress'
+    // After voting, the votation must continue being 'VotationInProgress'
     expect(program_return).to.deep.equal("VotationInProgress")
 
   });
 
   it("Proposal trying to be voted by the same student (the creator, in this case)", async () => {
 
-    //INITIALIZATING HIGH RANK 
+    // INITIALIZATING HIGH RANK 
     await initializeHighRank(program, wallet1);
 
-    //INITIALIZATING A SUBJECT
+    // INITIALIZATING A SUBJECT
 
     var subjectId = 1;
-    var subjectIdGeneratorExists = true;
     const subjectCode = 44230;
 
-    try {
-      const account = await fetchIdAccount(program, "subject");
-      subjectId = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      subjectIdGeneratorExists = false
-    }
 
-    if (!subjectIdGeneratorExists) {
-      await initializeIdGenerator(program, wallet1, "subject")
-    }
+    const subjectIdAccount = await fetchIdAccount(program, "subject");
+    subjectId = subjectIdAccount.smallerIdAvailable
 
-    const subjectSignature = await initializeSubject(program, wallet1, subjectId, "Asignatura de prueba", 1, 1, { second: {} }, subjectCode)
+
+    const subjectSignature = await initializeSubject(program, wallet1, subjectId, "Asignatura de prueba", 1, 1, { second: {} }, subjectCode, "QmPRKpTKznUt6sU8yjYBwWaECVBVBF8nMiL77W2hkhVsQs")
     await connection.confirmTransaction(subjectSignature.toString())
 
     const newSubjectAccount = await fetchSubjectAccount(program, subjectId);
 
 
-    //INITIALIZATING STUDENT
+    // INITIALIZATING STUDENT
 
     await initializeStudent(program, wallet3, [subjectCode]);
     getExtraFunds(connection, 50, wallet3)
-    var correct = true;
+
     var idExpected = 1;
     var professorProposalIdExpected = 1;
 
 
-    //CREATING NEW PROPOSAL (just exactly the previous tests)
-    try {
-      const account = await fetchIdAccount(program, "proposal");
-      idExpected = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      correct = false;
-    }
+    // CREATING NEW PROPOSAL (just exactly the previous tests)
 
-    if (!correct) {
-      await initializeIdGenerator(program, wallet3, "proposal")
-    }
+    const account = await fetchProposalIdAccount(program, false, newSubjectAccount.code)
+    idExpected = account.smallerIdAvailable
 
     try {
-      const account = await fetchIdAccount(program, "professorProposal");
+      const account = await fetchProposalIdAccount(program, true, newSubjectAccount.code)
       professorProposalIdExpected = account.smallerIdAvailable
     } catch (err) {
       assert.instanceOf(err, Error);
@@ -1476,22 +1408,20 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
 
     // CREATING PROPOSAL 
 
-    const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta Correcta", "Desarollo o contenido de la propuesta de prueba correcta", newSubjectAccount.id, professorProposalIdExpected)
+    const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta Correcta", "Desarollo o contenido de la propuesta de prueba correcta", newSubjectAccount.id, professorProposalIdExpected, newSubjectAccount.code)
     await connection.confirmTransaction(signature.toString())
 
 
-    //Fetching the proposal account before voting
-    const proposalAccount = await fetchProposalAccount(program, idExpected);
+    // Fetching the proposal account before voting
+    const proposalAccount = await fetchProposalAccount(program, idExpected, newSubjectAccount.code);
 
 
     // VOTING THE PROPOSAL (by the creator)
-    const vote_signature = await voteProposalByStudent(program, wallet3, Number(proposalAccount.id), Number(proposalAccount.subjectId), Number(proposalAccount.associatedProfessorProposalId), true)
+    const vote_signature = await voteProposalByStudent(program, wallet3, Number(proposalAccount.id), Number(proposalAccount.subjectId), Number(proposalAccount.associatedProfessorProposalId), true, newSubjectAccount.code)
     await connection.confirmTransaction(vote_signature.toString())
-    const transaction = await connection.getTransaction(vote_signature.toString(), { commitment: "confirmed" });
-
 
     try {
-      await voteProposalByStudent(program, wallet3, Number(proposalAccount.id), Number(proposalAccount.subjectId), Number(proposalAccount.associatedProfessorProposalId), false)
+      await voteProposalByStudent(program, wallet3, Number(proposalAccount.id), Number(proposalAccount.subjectId), Number(proposalAccount.associatedProfessorProposalId), false, newSubjectAccount.code)
 
     } catch (err) {
       assert.instanceOf(err, Error);
@@ -1503,61 +1433,43 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
 
   });
 
-  it("Proposal is trying to be created by an student that does not allow to it", async () => {
+  it("Proposal is trying to be created by an student that does not belong to it", async () => {
 
-    //INITIALIZATING HIGH RANK 
+    // INITIALIZATING HIGH RANK 
     await initializeHighRank(program, wallet1);
 
-    //INITIALIZATING A SUBJECT
+    // INITIALIZATING A SUBJECT
 
     var subjectId = 1;
-    var subjectIdGeneratorExists = true;
     const subjectCode = 18000;
 
-    try {
-      const account = await fetchIdAccount(program, "subject");
-      subjectId = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      subjectIdGeneratorExists = false
-    }
 
-    if (!subjectIdGeneratorExists) {
-      await initializeIdGenerator(program, wallet1, "subject")
-    }
+    const subjectIdAccount = await fetchIdAccount(program, "subject");
+    subjectId = subjectIdAccount.smallerIdAvailable
 
-    const subjectSignature = await initializeSubject(program, wallet1, subjectId, "Asignatura de prueba", 1, 1, { second: {} }, subjectCode)
+
+    const subjectSignature = await initializeSubject(program, wallet1, subjectId, "Asignatura de prueba", 1, 1, { second: {} }, subjectCode, "QmPRKpTKznUt6sU8yjYBwWaECVBVBF8nMiL77W2hkhVsQs")
     await connection.confirmTransaction(subjectSignature.toString())
 
     const newSubjectAccount = await fetchSubjectAccount(program, subjectId);
 
 
-    //INITIALIZATING STUDENT
+    // INITIALIZATING STUDENT
 
     await initializeStudent(program, wallet3, [subjectCode + 3]);
     getExtraFunds(connection, 50, wallet3)
-    var correct = true;
     var idExpected = 1;
     var professorProposalIdExpected = 1;
 
 
-    //CREATING NEW PROPOSAL (just exactly the previous tests)
-    try {
-      const account = await fetchIdAccount(program, "proposal");
-      idExpected = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      correct = false;
-    }
+    // CREATING NEW PROPOSAL (just exactly the previous tests)
 
-    if (!correct) {
-      await initializeIdGenerator(program, wallet3, "proposal")
-    }
+    const account = await fetchProposalIdAccount(program, false, newSubjectAccount.code)
+    idExpected = account.smallerIdAvailable
+
 
     try {
-      const account = await fetchIdAccount(program, "professorProposal");
+      const account = await fetchProposalIdAccount(program, true, newSubjectAccount.code)
       professorProposalIdExpected = account.smallerIdAvailable
     } catch (err) {
       assert.instanceOf(err, Error);
@@ -1568,7 +1480,7 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
 
 
     try {
-      const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta Correcta", "Desarollo o contenido de la propuesta de prueba correcta", newSubjectAccount.id, professorProposalIdExpected)
+      const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta Correcta", "Desarollo o contenido de la propuesta de prueba correcta", newSubjectAccount.id, professorProposalIdExpected, newSubjectAccount.code)
       await connection.confirmTransaction(signature.toString())
     } catch (err) {
       assert.instanceOf(err, Error);
@@ -1578,59 +1490,42 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
 
   it("Proposal is trying to be voted by an student that does not allow to it", async () => {
 
-    //INITIALIZATING HIGH RANK 
+    // INITIALIZATING HIGH RANK 
     await initializeHighRank(program, wallet1);
 
-    //INITIALIZATING A SUBJECT
+    // INITIALIZATING A SUBJECT
 
     var subjectId = 1;
-    var subjectIdGeneratorExists = true;
+
     const subjectCode = 43193;
 
-    try {
-      const account = await fetchIdAccount(program, "subject");
-      subjectId = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      subjectIdGeneratorExists = false
-    }
 
-    if (!subjectIdGeneratorExists) {
-      await initializeIdGenerator(program, wallet1, "subject")
-    }
+    const subjectIdAccount = await fetchIdAccount(program, "subject");
+    subjectId = subjectIdAccount.smallerIdAvailable
 
-    const subjectSignature = await initializeSubject(program, wallet1, subjectId, "Asignatura de prueba", 1, 1, { second: {} }, subjectCode)
+
+    const subjectSignature = await initializeSubject(program, wallet1, subjectId, "Asignatura de prueba", 1, 1, { second: {} }, subjectCode, "QmPRKpTKznUt6sU8yjYBwWaECVBVBF8nMiL77W2hkhVsQs")
     await connection.confirmTransaction(subjectSignature.toString())
 
     const newSubjectAccount = await fetchSubjectAccount(program, subjectId);
 
 
-    //INITIALIZATING STUDENT
+    // INITIALIZATING STUDENT
 
     await initializeStudent(program, wallet3, [subjectCode]);
     getExtraFunds(connection, 50, wallet3)
-    var correct = true;
+
     var idExpected = 1;
     var professorProposalIdExpected = 1;
 
 
-    //CREATING NEW PROPOSAL (just exactly the previous tests)
-    try {
-      const account = await fetchIdAccount(program, "proposal");
-      idExpected = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      correct = false;
-    }
+    // CREATING NEW PROPOSAL (just exactly the previous tests)
 
-    if (!correct) {
-      await initializeIdGenerator(program, wallet3, "proposal")
-    }
+    const account = await fetchProposalIdAccount(program, false, newSubjectAccount.code)
+    idExpected = account.smallerIdAvailable
 
     try {
-      const account = await fetchIdAccount(program, "professorProposal");
+      const account = await fetchProposalIdAccount(program, true, newSubjectAccount.code)
       professorProposalIdExpected = account.smallerIdAvailable
     } catch (err) {
       assert.instanceOf(err, Error);
@@ -1639,19 +1534,19 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
 
     // CREATING PROPOSAL 
 
-    const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta Correcta", "Desarollo o contenido de la propuesta de prueba correcta", newSubjectAccount.id, professorProposalIdExpected)
+    const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta Correcta", "Desarollo o contenido de la propuesta de prueba correcta", newSubjectAccount.id, professorProposalIdExpected, newSubjectAccount.code)
     await connection.confirmTransaction(signature.toString())
 
 
-    //Fetching the proposal account before voting
-    const proposalAccount = await fetchProposalAccount(program, idExpected);
+    // Fetching the proposal account before voting
+    const proposalAccount = await fetchProposalAccount(program, idExpected, newSubjectAccount.code);
 
-    //INITIALIZING VOTING STUDENT
+    // INITIALIZING VOTING STUDENT
     await initializeStudent(program, alternativeWallet, [])
 
     // VOTING THE PROPOSAL (by the creator)
     try {
-      await voteProposalByStudent(program, alternativeWallet, Number(proposalAccount.id), Number(proposalAccount.subjectId), Number(proposalAccount.associatedProfessorProposalId), true)
+      await voteProposalByStudent(program, alternativeWallet, Number(proposalAccount.id), Number(proposalAccount.subjectId), Number(proposalAccount.associatedProfessorProposalId), true, newSubjectAccount.code)
       await connection.confirmTransaction(signature.toString())
     } catch (err) {
       assert.instanceOf(err, Error);
@@ -1660,7 +1555,7 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
   });
 
 
-  //   //--------------------------TEST THAT ONLY WORK BY MODIFYING CERTAIN CONDITIONS OF THE SMART CONTRACT-----------------------//
+    //--------------------------TEST THAT ONLY WORK BY MODIFYING CERTAIN CONDITIONS OF THE SMART CONTRACT-----------------------//
 
 
   /*
@@ -1669,249 +1564,214 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
 
   it("Reaching the number of expecting votes while voting true ", async () => {
 
-    //INITIALIZATING HIGH RANK 
+    // INITIALIZATING HIGH RANK 
     await initializeHighRank(program, wallet1);
 
-    //INITIALIZATING A SUBJECT
+    // INITIALIZATING A SUBJECT
 
     var subjectId = 1;
-    var subjectIdGeneratorExists = true;
     const subjectCode = 50003;
 
-    try {
-      const account = await fetchIdAccount(program, "subject");
-      subjectId = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      subjectIdGeneratorExists = false
-    }
 
-    if (!subjectIdGeneratorExists) {
-      await initializeIdGenerator(program, wallet1, "subject")
-    }
+    const subjectIdAccount = await fetchIdAccount(program, "subject");
+    subjectId = subjectIdAccount.smallerIdAvailable
 
-    const subjectSignature = await initializeSubject(program, wallet1, subjectId, "Asignatura de prueba", 1, 1, { second: {} }, subjectCode)
+
+    const subjectSignature = await initializeSubject(program, wallet1, subjectId, "Asignatura de prueba", 1, 1, { second: {} }, subjectCode, "QmPRKpTKznUt6sU8yjYBwWaECVBVBF8nMiL77W2hkhVsQs")
     await connection.confirmTransaction(subjectSignature.toString())
 
     const newSubjectAccount = await fetchSubjectAccount(program, subjectId)
 
-    //INITIALIZATING STUDENT
+    // INITIALIZATING STUDENT
 
     await initializeStudent(program, wallet3, [subjectCode]);
     getExtraFunds(connection, 50, wallet3)
-    var correct = true;
+
     var idExpected = 1;
     var professorProposalIdExpected = 1;
 
 
-    //CREATING NEW PROPOSAL (just exactly the previous tests)
-    try {
-      const account = await fetchIdAccount(program, "proposal");
-      idExpected = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      correct = false;
-    }
+    // CREATING NEW PROPOSAL (just exactly the previous tests)
 
-    if (!correct) {
-      await initializeIdGenerator(program, wallet3, "proposal")
-    }
+    const account = await fetchProposalIdAccount(program, false, newSubjectAccount.code)
+    idExpected = account.smallerIdAvailable
+
+
 
     try {
-      const account = await fetchIdAccount(program, "professorProposal");
+      const account = await fetchProposalIdAccount(program, true, newSubjectAccount.code)
       professorProposalIdExpected = account.smallerIdAvailable
     } catch (err) {
       assert.instanceOf(err, Error);
       assert.include(err.toString(), "Account does not exist");
     }
 
-    const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta Correcta", "Desarollo o contenido de la propuesta de prueba correcta", newSubjectAccount.id, professorProposalIdExpected)
+    const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta Correcta", "Desarollo o contenido de la propuesta de prueba correcta", newSubjectAccount.id, professorProposalIdExpected, newSubjectAccount.code)
     await connection.confirmTransaction(signature.toString())
 
-    //VOTING TRUE BY DIFFERENT STUDENTS 
+    // VOTING TRUE BY DIFFERENT STUDENTS 
 
     // Fetching the proposal account before voting
-    const proposalAccountBeforeVoting = await fetchProposalAccount(program, idExpected);
+    const proposalAccountBeforeVoting = await fetchProposalAccount(program, idExpected, newSubjectAccount.code);
 
     const number_of_votes_expected = 20 // Must be set to 20 on SC (MAXIMUM_PARTICIPATION const)
 
-    //Subscribing to the event emitted when the votation is finished and accepted 
+    // Subscribing to the event emitted when the votation is finished and accepted 
     let event_emitted: any;
     program.addEventListener("NewProfessorProposalCreated", (event, _slot, _signature) => { event_emitted = event })
 
-    //We create students to vote in favor until the number of votes expected is reached and the votation is forced to finalize
+    // We create students to vote in favor until the number of votes expected is reached and the votation is forced to finalize
     var vote_signature: String;
 
     for (var i: number = 0; i < number_of_votes_expected; i++) {
       alternativeWallet = await createWallet(connection, 10);
       await initializeStudent(program, alternativeWallet, [subjectCode])
-      vote_signature = await voteProposalByStudent(program, alternativeWallet, proposalAccountBeforeVoting.id, proposalAccountBeforeVoting.subjectId, proposalAccountBeforeVoting.associatedProfessorProposalId, true)
+      vote_signature = await voteProposalByStudent(program, alternativeWallet, proposalAccountBeforeVoting.id, proposalAccountBeforeVoting.subjectId, proposalAccountBeforeVoting.associatedProfessorProposalId, true, newSubjectAccount.code)
       await connection.confirmTransaction(vote_signature.toString())
 
     }
 
-    //Fetching the proposal account after voting
-    const proposalAccountAfterVoting = await fetchProposalAccount(program, idExpected);
+    // Fetching the proposal account after voting
+    const proposalAccountAfterVoting = await fetchProposalAccount(program, idExpected, newSubjectAccount.code);
 
-    //The Creator's Public Key must be equal to the Wallet3's (Student) PublicKey
+    // The Creator's Public Key must be equal to the Wallet3's (Student) PublicKey
     expect(proposalAccountAfterVoting.creatorPublicKey.toString()).to.deep.equal(wallet3.publicKey.toString())
 
     expect(new anchor.BN(proposalAccountAfterVoting.againstVotes + proposalAccountAfterVoting.supportingVotes).eq(new anchor.BN(number_of_votes_expected))).to.be.true;
 
-    //Getting the Program Return
+    // Getting the Program Return
     const lastVotingTransaction = await connection.getTransaction(vote_signature.toString(), { commitment: "confirmed" });
     const [key, data, buffer] = getReturnLog(lastVotingTransaction);
     const program_return = new Borsh.BinaryReader(buffer).readString();
 
-    //After completing the voting process, the votation must continue being 'WaitingForTeacher' since all students voted 'true' (supporting the proposal)
+    // After completing the voting process, the votation must continue being 'WaitingForTeacher' since all students voted 'true' (supporting the proposal)
     expect(program_return).to.deep.equal("WaitingForTeacher")
 
-    //fetching the professorProposalIdHandler and the professorProposal
-    const professorProposalIdHandler = await fetchIdAccount(program, "professorProposal");
+    // fetching the professorProposalIdHandler and the professorProposal
+    const professorProposalIdHandler = await fetchProposalIdAccount(program, true, newSubjectAccount.code)
     const idExpectedFromProfessorProposal = Number(professorProposalIdHandler.smallerIdAvailable - 1)
 
-    const professorProposal = await fetchProfessorProposalAccount(program, proposalAccountAfterVoting.associatedProfessorProposalId)
+    const professorProposal = await fetchProfessorProposalAccount(program, proposalAccountAfterVoting.associatedProfessorProposalId, newSubjectAccount.code)
 
-    //Checking the result emitted is correct
+    // Checking the result emitted is correct
     expect(event_emitted).to.deep.equal({ proposalId: proposalAccountAfterVoting.id, professorProposalId: idExpectedFromProfessorProposal })
 
-    //Evaluating the professorProposal is properly initializated 
+    // Evaluating the professorProposal is properly initializated 
     expect(new anchor.BN(proposalAccountAfterVoting.associatedProfessorProposalId).eq(new anchor.BN(professorProposal.id))).to.be.true;
     expect(professorProposal.state).to.deep.equal({ pending: {} });
 
   });
 
 
-
   it("Forcing the test to finalize (reaching the number of expecting votes) and tokens -credits- are properly delivered ", async () => {
 
-    //INITIALIZATING HIGH RANK 
+    // INITIALIZATING HIGH RANK 
     await initializeHighRank(program, wallet1);
 
-    //INITIALIZATING A SUBJECT
+    // INITIALIZATING A SUBJECT
 
     var subjectId = 1;
-    var subjectIdGeneratorExists = true;
     const subjectCode = 80003;
 
-    try {
-      const account = await fetchIdAccount(program, "subject");
-      subjectId = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      subjectIdGeneratorExists = false
-    }
 
-    if (!subjectIdGeneratorExists) {
-      await initializeIdGenerator(program, wallet1, "subject")
-    }
+    const subjectIdAccount = await fetchIdAccount(program, "subject");
+    subjectId = subjectIdAccount.smallerIdAvailable
 
-    const subjectSignature = await initializeSubject(program, wallet1, subjectId, "Asignatura de prueba", 1, 1, { second: {} }, subjectCode)
+
+    const subjectSignature = await initializeSubject(program, wallet1, subjectId, "Asignatura de prueba", 1, 1, { second: {} }, subjectCode, "QmPRKpTKznUt6sU8yjYBwWaECVBVBF8nMiL77W2hkhVsQs")
     await connection.confirmTransaction(subjectSignature.toString())
 
     const newSubjectAccount = await fetchSubjectAccount(program, subjectId)
 
-    //INITIALIZATING STUDENT
+    // INITIALIZATING STUDENT
 
     await initializeStudent(program, wallet3, [subjectCode]);
     getExtraFunds(connection, 50, wallet3)
-    var correct = true;
     var idExpected = 1;
     var professorProposalIdExpected = 1;
 
 
-    //CREATING NEW PROPOSAL (just exactly the previous tests)
-    try {
-      const account = await fetchIdAccount(program, "proposal");
-      idExpected = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      correct = false;
-    }
+    // CREATING NEW PROPOSAL (just exactly the previous tests)
 
-    if (!correct) {
-      await initializeIdGenerator(program, wallet3, "proposal")
-    }
+    const account = await fetchProposalIdAccount(program, false, newSubjectAccount.code)
+    idExpected = account.smallerIdAvailable
+
+
 
     try {
-      const account = await fetchIdAccount(program, "professorProposal");
+      const account = await fetchProposalIdAccount(program, true, newSubjectAccount.code)
       professorProposalIdExpected = account.smallerIdAvailable
     } catch (err) {
       assert.instanceOf(err, Error);
       assert.include(err.toString(), "Account does not exist");
     }
 
-    const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta Correcta", "Desarollo o contenido de la propuesta de prueba correcta", newSubjectAccount.id, professorProposalIdExpected)
+    const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta Correcta", "Desarollo o contenido de la propuesta de prueba correcta", newSubjectAccount.id, professorProposalIdExpected, newSubjectAccount.code)
     await connection.confirmTransaction(signature.toString())
 
-    //VOTING TRUE BY DIFFERENT STUDENTS 
+    // VOTING TRUE BY DIFFERENT STUDENTS 
 
     // Fetching the proposal account before voting
-    const proposalAccountBeforeVoting = await fetchProposalAccount(program, idExpected);
+    const proposalAccountBeforeVoting = await fetchProposalAccount(program, idExpected, newSubjectAccount.code);
 
     const number_of_votes_expected = 20 // Must be set to 20 on SC (MAXIMUM_PARTICIPATION const)
 
-    //Subscribing to the event emitted when the votation is finished and accepted 
+    // Subscribing to the event emitted when the votation is finished and accepted 
     let event_emitted: any;
     program.addEventListener("NewProfessorProposalCreated", (event, _slot, _signature) => { event_emitted = event })
 
-    //We create students to vote in favor until the number of votes expected is reached and the votation is forced to finalize
+    // We create students to vote in favor until the number of votes expected is reached and the votation is forced to finalize
     var vote_signature: String;
 
     for (var i: number = 0; i < number_of_votes_expected; i++) {
       alternativeWallet = await createWallet(connection, 10);
       await initializeStudent(program, alternativeWallet, [subjectCode])
-      vote_signature = await voteProposalByStudent(program, alternativeWallet, proposalAccountBeforeVoting.id, proposalAccountBeforeVoting.subjectId, proposalAccountBeforeVoting.associatedProfessorProposalId, true)
+      vote_signature = await voteProposalByStudent(program, alternativeWallet, proposalAccountBeforeVoting.id, proposalAccountBeforeVoting.subjectId, proposalAccountBeforeVoting.associatedProfessorProposalId, true, newSubjectAccount.code)
       await connection.confirmTransaction(vote_signature.toString())
 
     }
 
-    //Fetching the proposal account after voting
-    const proposalAccountAfterVoting = await fetchProposalAccount(program, idExpected);
+    // Fetching the proposal account after voting
+    const proposalAccountAfterVoting = await fetchProposalAccount(program, idExpected, newSubjectAccount.code);
 
     expect(new anchor.BN(proposalAccountAfterVoting.againstVotes + proposalAccountAfterVoting.supportingVotes).eq(new anchor.BN(number_of_votes_expected))).to.be.true;
 
-    //Getting the Program Return
+    // Getting the Program Return
     const lastVotingTransaction = await connection.getTransaction(vote_signature.toString(), { commitment: "confirmed" });
     const [key, data, buffer] = getReturnLog(lastVotingTransaction);
     const program_return = new Borsh.BinaryReader(buffer).readString();
 
-    //After completing the voting process, the votation must continue being 'WaitingForTeacher' since all students voted 'true' (supporting the proposal)
+    // After completing the voting process, the votation must continue being 'WaitingForTeacher' since all students voted 'true' (supporting the proposal)
     expect(program_return).to.deep.equal("WaitingForTeacher")
 
-    //fetching the professorProposalIdHandler and the professorProposal
-    const professorProposalIdHandler = await fetchIdAccount(program, "professorProposal");
+    // fetching the professorProposalIdHandler and the professorProposal
+    const professorProposalIdHandler = await fetchProposalIdAccount(program, true, newSubjectAccount.code)
     const idExpectedFromProfessorProposal = Number(professorProposalIdHandler.smallerIdAvailable - 1)
 
-    const professorProposal = await fetchProfessorProposalAccount(program, proposalAccountAfterVoting.associatedProfessorProposalId)
+    const professorProposal = await fetchProfessorProposalAccount(program, proposalAccountAfterVoting.associatedProfessorProposalId, newSubjectAccount.code)
 
-
-    //Checking the result emitted is correct
+    // Checking the result emitted is correct
     expect(event_emitted).to.deep.equal({ proposalId: proposalAccountAfterVoting.id, professorProposalId: idExpectedFromProfessorProposal })
 
-    //Evaluating the professorProposal is properly initializated 
+    // Evaluating the professorProposal is properly initializated 
     expect(new anchor.BN(proposalAccountAfterVoting.associatedProfessorProposalId).eq(new anchor.BN(professorProposal.id))).to.be.true;
     expect(professorProposal.state).to.deep.equal({ pending: {} });
 
-    //Updating Proposal by Professor
+    // Updating Proposal by Professor
     await initializeProfessor(program, wallet2, [subjectCode])
-    await updateProposalByProfessor(program, wallet2, proposalAccountAfterVoting.id, professorProposal.id)
+    await updateProposalByProfessor(program, wallet2, proposalAccountAfterVoting.id, professorProposal.id, newSubjectAccount.code, newSubjectAccount.id, "QmPRKpTKznUt6sU8yjYBwWaECVBVBF8nMiL77W2hkhVsQs")
 
-    const proposalAccountAfterProfessorUpdating = await fetchProposalAccount(program, idExpected);
-    const professorProposalAfterProfessorUpdating = await fetchProfessorProposalAccount(program, proposalAccountAfterVoting.associatedProfessorProposalId)
+    const proposalAccountAfterProfessorUpdating = await fetchProposalAccount(program, idExpected, newSubjectAccount.code);
+    const professorProposalAfterProfessorUpdating = await fetchProfessorProposalAccount(program, proposalAccountAfterVoting.associatedProfessorProposalId, newSubjectAccount.code)
 
     expect(professorProposalAfterProfessorUpdating.state).to.deep.equal({ complete: {} });
     expect(proposalAccountAfterProfessorUpdating.state).to.deep.equal({ waitingForHighRank: {} });
 
-    //Updating Proposal by HighRank
-    await updateProposalByHighRank(program, wallet1, proposalAccountAfterVoting.id, professorProposal.id)
+    // Updating Proposal by HighRank
+    await updateProposalByHighRank(program, wallet1, proposalAccountAfterVoting.id, professorProposal.id, newSubjectAccount.code, newSubjectAccount.id)
 
-    const proposalAccountAfterHighRankUpdating = await fetchProposalAccount(program, idExpected);
-    const professorProposalAfterHighRankUpdating = await fetchProfessorProposalAccount(program, proposalAccountAfterVoting.associatedProfessorProposalId)
+    const proposalAccountAfterHighRankUpdating = await fetchProposalAccount(program, idExpected, newSubjectAccount.code);
+    const professorProposalAfterHighRankUpdating = await fetchProfessorProposalAccount(program, proposalAccountAfterVoting.associatedProfessorProposalId, newSubjectAccount.code)
 
     expect(professorProposalAfterHighRankUpdating.state).to.deep.equal({ complete: {} });
     expect(proposalAccountAfterHighRankUpdating.state).to.deep.equal({ accepted: {} });
@@ -1931,11 +1791,13 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
       assert.include(err.toString(), "TokenAccountNotFoundError");
     }
 
-    await giveCreditToStudent(program, wallet1, proposalAccountAfterHighRankUpdating.id, proposalAccountAfterHighRankUpdating.creatorPublicKey, "1111")
+    await giveCreditToStudent(program, wallet1, proposalAccountAfterHighRankUpdating.id, proposalAccountAfterHighRankUpdating.creatorPublicKey, "1111", newSubjectAccount.code, newSubjectAccount.id)
 
     const tokenAccountBuyerAfter = await getAccount(connection, studentAssociatedTokenAccount);
     const balanceAfterGiving = Number(tokenAccountBuyerAfter.amount);
 
+    console.log(balanceAfterGiving)
+    console.log(balanceBeforeGiving)
     expect(new anchor.BN(balanceAfterGiving).eq(new anchor.BN(balanceBeforeGiving + 10))).to.be.true;
 
   });
@@ -1943,108 +1805,84 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
 
   it("Forcing the test to finalize (reaching the number of expecting votes) and voting false", async () => {
 
-    //INITIALIZATING HIGH RANK 
+    // INITIALIZATING HIGH RANK 
     await initializeHighRank(program, wallet1);
 
-    //INITIALIZATING A SUBJECT
+    // INITIALIZATING A SUBJECT
 
     var subjectId = 1;
-    var subjectIdGeneratorExists = true;
     const subjectCode = 78003;
 
-    try {
-      const account = await fetchIdAccount(program, "subject");
-      subjectId = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      subjectIdGeneratorExists = false
-    }
 
-    if (!subjectIdGeneratorExists) {
-      await initializeIdGenerator(program, wallet1, "subject")
-    }
+    const subjectIdAccount = await fetchIdAccount(program, "subject");
+    subjectId = subjectIdAccount.smallerIdAvailable
 
-    const subjectSignature = await initializeSubject(program, wallet1, subjectId, "Asignatura de prueba", 1, 1, { second: {} }, subjectCode)
+
+    const subjectSignature = await initializeSubject(program, wallet1, subjectId, "Asignatura de prueba", 1, 1, { second: {} }, subjectCode, "QmPRKpTKznUt6sU8yjYBwWaECVBVBF8nMiL77W2hkhVsQs")
     await connection.confirmTransaction(subjectSignature.toString())
 
     const newSubjectAccount = await fetchSubjectAccount(program, subjectId)
 
-    //INITIALIZATING STUDENT
+    // INITIALIZATING STUDENT
 
     await initializeStudent(program, wallet3, [subjectCode]);
     getExtraFunds(connection, 50, wallet3)
-    var correct = true;
     var idExpected = 1;
     var professorProposalIdExpected = 1;
 
 
-    //CREATING NEW PROPOSAL (just exactly the previous tests)
-    try {
-      const account = await fetchIdAccount(program, "proposal");
-      idExpected = account.smallerIdAvailable
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "Account does not exist");
-      correct = false;
-    }
+    // CREATING NEW PROPOSAL (just exactly the previous tests)
 
-    if (!correct) {
-      await initializeIdGenerator(program, wallet3, "proposal")
-    }
+    const account = await fetchProposalIdAccount(program, false, newSubjectAccount.code)
+    idExpected = account.smallerIdAvailable
+
 
     try {
-      const account = await fetchIdAccount(program, "professorProposal");
+      const account = await fetchProposalIdAccount(program, true, newSubjectAccount.code)
       professorProposalIdExpected = account.smallerIdAvailable
     } catch (err) {
       assert.instanceOf(err, Error);
       assert.include(err.toString(), "Account does not exist");
     }
 
-    const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta Correcta", "Desarollo o contenido de la propuesta de prueba correcta", newSubjectAccount.id, professorProposalIdExpected)
+    const signature = await initializeProposalByStudent(program, wallet3, idExpected, "Propuesta Correcta", "Desarollo o contenido de la propuesta de prueba correcta", newSubjectAccount.id, professorProposalIdExpected, newSubjectAccount.code)
     await connection.confirmTransaction(signature.toString())
 
-    //VOTING TRUE BY DIFFERENT STUDENTS 
+    // VOTING TRUE BY DIFFERENT STUDENTS 
 
     // Fetching the proposal account before voting
-    const proposalAccountBeforeVoting = await fetchProposalAccount(program, idExpected);
+    const proposalAccountBeforeVoting = await fetchProposalAccount(program, idExpected, newSubjectAccount.code);
 
     const number_of_votes_expected = 20 // Must be set to 20 on SC (MAXIMUM_PARTICIPATION const)
 
-    //Subscribing to the event emitted when the votation is finished and accepted 
-    let event_emitted: any;
-    program.addEventListener("NewProfessorProposalCreated", (event, _slot, _signature) => { event_emitted = event })
-
-    //We create students to vote in favor until the number of votes expected is reached and the votation is forced to finalize
+    // We create students to vote in favor until the number of votes expected is reached and the votation is forced to finalize
     let vote_signature: String;
     for (var i = 0; i < number_of_votes_expected; i++) {
       alternativeWallet = await createWallet(connection, 10);
       await initializeStudent(program, alternativeWallet, [subjectCode])
-      vote_signature = await voteProposalByStudent(program, alternativeWallet, Number(proposalAccountBeforeVoting.id), Number(proposalAccountBeforeVoting.subjectId), Number(proposalAccountBeforeVoting.associatedProfessorProposalId), false)
+      vote_signature = await voteProposalByStudent(program, alternativeWallet, Number(proposalAccountBeforeVoting.id), Number(proposalAccountBeforeVoting.subjectId), Number(proposalAccountBeforeVoting.associatedProfessorProposalId), false, newSubjectAccount.code)
       await connection.confirmTransaction(vote_signature.toString())
     }
 
-    //Fetching the proposal account after voting
-    const proposalAccountAfterVoting = await fetchProposalAccount(program, idExpected);
+    // Fetching the proposal account after voting
+    const proposalAccountAfterVoting = await fetchProposalAccount(program, idExpected, newSubjectAccount.code);
     expect(new anchor.BN(proposalAccountAfterVoting.againstVotes + proposalAccountAfterVoting.supportingVotes).eq(new anchor.BN(number_of_votes_expected))).to.be.true;
 
-    const subjectAccount = await fetchSubjectAccount(program, proposalAccountBeforeVoting.subjectId);
-
-    //Getting the Program Return
+    // Getting the Program Return
     const lastVotingTransaction = await connection.getTransaction(vote_signature.toString(), { commitment: "confirmed" });
     const [key, data, buffer] = getReturnLog(lastVotingTransaction);
     const program_return = new Borsh.BinaryReader(buffer).readString();
 
-    //After completing the voting process, the votation must continue being 'Rejecting' since all students voted 'false' (against the proposal)
+    // After completing the voting process, the votation must continue being 'Rejecting' since all students voted 'false' (against the proposal)
     expect(program_return).to.deep.equal("Rejected")
 
     //Trying to delete the rejectedProposal by a HighRank
-    await deleteRejectedProposalByHighRank(program, wallet1, proposalAccountAfterVoting.id, proposalAccountAfterVoting.subjectId, proposalAccountAfterVoting.associatedProfessorProposalId);
+    await deleteRejectedProposalByHighRank(program, wallet1, proposalAccountAfterVoting.id, proposalAccountAfterVoting.subjectId, proposalAccountAfterVoting.associatedProfessorProposalId, newSubjectAccount.code);
 
 
-    //Trying to fetch the proposal account and the professor proposal account --> they both must not exist 
+    // Trying to fetch the proposal account and the professor proposal account --> they both must not exist 
     try {
-      await fetchProposalAccount(program, proposalAccountAfterVoting.id);
+      await fetchProposalAccount(program, proposalAccountAfterVoting.id, newSubjectAccount.code);
       assert.fail("Fetching the proposalAccount does not failed and the fail was expected")
     } catch (err) {
       assert.instanceOf(err, Error);
@@ -2052,7 +1890,7 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     }
 
     try {
-      await fetchProfessorProposalAccount(program, proposalAccountAfterVoting.associatedProfessorProposalId);
+      await fetchProfessorProposalAccount(program, proposalAccountAfterVoting.associatedProfessorProposalId, newSubjectAccount.code);
       assert.fail("Fetching the proposalAccount does not failed and the fail was expected")
     } catch (err) {
       assert.instanceOf(err, Error);
@@ -2062,10 +1900,28 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
   });
 
 
+  // it("Empty Test", async () => {
 
+  //   const proposal = await fetchProposalAccount(program, 4, 43222)
+
+  //   for (var i: number = 1; i < proposal.expectedVotes; i++) {
+  //     alternativeWallet = await createWallet(connection, 10);
+  //     await initializeStudent(program, alternativeWallet, [43222])
+  //     let vote_signature = await voteProposalByStudent(program, alternativeWallet, proposal.id, proposal.subjectId, proposal.associatedProfessorProposalId, true, 43222)
+  //     await connection.confirmTransaction(vote_signature.toString())
+  //     const proposal_inside = await fetchProposalAccount(program, 4, 43222)
+  //     console.log(proposal_inside)
+
+  //   }
+
+  //   const proposal2 = await fetchProposalAccount(program, 4, 43222)
+  //   console.log(proposal2)
+  //   assert.equal(1, 1)
+  // });
 
 
 });
+
 
 
 

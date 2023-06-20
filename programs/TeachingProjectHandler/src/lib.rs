@@ -11,7 +11,7 @@ use anchor_spl::{
 
 declare_id!("Hd3HLLMfbMJonaCvcQ8GugmTdKsGoHvce1JfAUU2gmiS");
 
-const SOLANA_ACCOUNT_MAX_SIZE: usize = 1 * 10_usize.pow(4);  // 0.1 MB
+const SOLANA_ACCOUNT_MAX_SIZE: usize = 1 * 10_usize.pow(4);  // 10 KB
 
 const ENDING_TIMESTAMP_OFFSET: i64 = 2592000;
 const EXTRA_VOTES_EXPECTED: u32 = 20;
@@ -120,7 +120,7 @@ pub mod teaching_project_handler {
         Ok(true)
     }
 
-    pub fn create_subject(ctx: Context<CreateSubject>, name:String, degree_id: i32, specialty_id: i32, course: SubjectCourse, code: u32) -> Result<bool> {
+    pub fn create_subject(ctx: Context<CreateSubject>, name:String, degree_id: i32, specialty_id: i32, course: SubjectCourse, code: u32, teaching_project_reference: String) -> Result<bool> {
 
         let subject_account = &mut *ctx.accounts.subject_account;
         subject_account.id = general_id_generator(&mut ctx.accounts.subject_id_handler);
@@ -129,9 +129,14 @@ pub mod teaching_project_handler {
         subject_account.specialty_id = specialty_id;
         subject_account.course = course;
         subject_account.code = code;
+        subject_account.teaching_project_reference = teaching_project_reference;
 
         let code_id_relation_account = &mut *ctx.accounts.code_id_subject_relation_account;
         code_id_relation_account.add_key_value_subject_pair(subject_account.id, code, false, false);
+
+        //Creating the associated ProposalIdHandler and ProfessorProposalIdHandler
+        update_internally_initializated_id_generator(&mut *ctx.accounts.proposal_id_handler);
+        update_internally_initializated_id_generator(&mut *ctx.accounts.professor_proposal_id_handler);
 
         Ok(true)
 
@@ -315,7 +320,7 @@ pub mod teaching_project_handler {
         if !evaluate_if_user_belong_to_subject(subject_professors, subject_account.code) { return Err(error!(ErrorCode::UserDoesNotBelongToTheSubject)) }
 
         // Evaluating if student has already voted
-        for professor_id in &(proposal_account.students_that_have_voted) {
+        for professor_id in &(proposal_account.professors_that_have_voted) {
             if professor_id.clone() == professor_account.id {
                 return Err(error!(ErrorCode::UserHasAlreadyVoted));
             }
@@ -367,13 +372,13 @@ pub mod teaching_project_handler {
 
     }
 
-    pub fn update_proposal_by_professor (ctx: Context<UpdateProposalByProfessor>) -> Result <bool> {
+    pub fn update_proposal_by_professor (ctx: Context<UpdateProposalByProfessor>, teaching_project_reference: String) -> Result <bool> {
 
         let proposal_account = &mut *ctx.accounts.proposal_account;
         let associated_professor_proposal_account = &mut *ctx.accounts.professor_proposal_account;
         let professor_account = &mut *ctx.accounts.professor_account;
 
-        // Reference to new TeachingProject must be updated on Proposal and passed as a parameter 
+        associated_professor_proposal_account.teaching_project_reference = teaching_project_reference;
 
         associated_professor_proposal_account.state = ProfessorProposalState::Complete;
         proposal_account.state = ProposalState::WaitingForHighRank;
@@ -412,14 +417,14 @@ pub mod teaching_project_handler {
         Ok (true)
     }
 
-    pub fn give_credits_to_winning_student(ctx: Context<GiveCreditToWinningStudent>, user_type_code:String, mint_authority_bump: u8) -> Result <bool> {
+    pub fn give_credits_to_winning_student(ctx: Context<GiveCreditToWinningStudent>, user_type_code:String, _subject_code: u32, mint_authority_bump: u8) -> Result <bool> {
 
         //Checking if the publicKey of the creator account passed matches the proposal's creator public key field
         let proposal_account_creator_public_key = ctx.accounts.proposal_account.creator_public_key;
         let creator_account_public_key = ctx.accounts.creator_account.authority.key();
-        require_keys_eq!(proposal_account_creator_public_key, creator_account_public_key);
+         require_keys_eq!(proposal_account_creator_public_key, creator_account_public_key);
 
-        // Minting new token to the creator account as a reward for his/her proposal having been accepted
+        // // Minting new token to the creator account as a reward for his/her proposal having been accepted
         let bump = &[mint_authority_bump];
         let mint_key = ctx.accounts.mint.key();
         let seeds = &[&[b"mint_authority", mint_key.as_ref(), user_type_code.as_bytes().as_ref(), bump][..]];
@@ -433,7 +438,7 @@ pub mod teaching_project_handler {
 
     }
 
-    pub fn give_credits_to_winning_professor(ctx: Context<GiveCreditToWinningProfessor>, user_type_code:String, mint_authority_bump: u8) -> Result <bool> {
+    pub fn give_credits_to_winning_professor(ctx: Context<GiveCreditToWinningProfessor>, user_type_code:String, _subject_code: u32, mint_authority_bump: u8) -> Result <bool> {
 
         //Checking if the publicKey of the creator account passed matches the proposal's creator public key field
         let proposal_account_creator_public_key = ctx.accounts.proposal_account.creator_public_key;
@@ -469,19 +474,33 @@ pub mod teaching_project_handler {
         Ok (true)
     }
    
-    pub fn create_id_generator_for(ctx: Context<CreateIdHandler>, _specification: String) -> Result<bool> {
-        let id_generator_account = &mut *ctx.accounts.specification_id_handler;
-        id_generator_account.smaller_id_available = 1;
-        Ok(true)
-    }
-    
-    pub fn create_code_id_subject_relation_for (ctx: Context<CreateCodeIdSubjectRelation>) -> Result<bool> {
+    pub fn initializate_new_system (ctx: Context <InitializeSystem>) -> Result<bool> {
+
+        // Initializating the Subjects' Code-Id Relation
         let code_id_subject_relation_account = &mut *ctx.accounts.code_id_subject_relation;
         code_id_subject_relation_account.code_value = vec![];
         code_id_subject_relation_account.key_id = vec![];
-        Ok(true)
-    }
 
+        //Marking the system as initialized
+        let system_account = &mut *ctx.accounts.initialization_system_account;
+        system_account.system_is_initialized = true;
+
+        //Initializing Id's Generator for Academic Data 
+        let degree_id_generator_account = &mut *ctx.accounts.degree_id_handler;
+        degree_id_generator_account.smaller_id_available = 1;
+
+        let faculty_id_generator_account = &mut *ctx.accounts.faculty_id_handler;
+        faculty_id_generator_account.smaller_id_available = 1;
+
+        let specialty_id_generator_account = &mut *ctx.accounts.specialty_id_handler;
+        specialty_id_generator_account.smaller_id_available = 1;
+
+        let subject_id_generator_account = &mut *ctx.accounts.subject_id_handler;
+        subject_id_generator_account.smaller_id_available = 1;
+
+        Ok(true)
+
+    }
 
 
     
@@ -497,17 +516,9 @@ fn general_id_generator (id_handler_account: &mut Account<IdHandler>) ->  i32 {
 
 pub fn update_internally_initializated_id_generator(id_handler_account: &mut IdHandler) {
 
-    if id_handler_account.smaller_id_available == 0 {
-
-        id_handler_account.smaller_id_available += 1;
-
-    }
+    if id_handler_account.smaller_id_available == 0 { id_handler_account.smaller_id_available += 1; }
 }
 
-
-fn evaluate_professor_proposal_id_handler(id: i32) -> i32 {
-    if id == 0 { 1 } else { id }
-}
 
 fn initialize_professor_proposal_account(professor_proposal_account: &mut ProfessorProposal, timestamp_offset: i64) {
 
@@ -569,8 +580,7 @@ fn evaluate_if_user_belong_to_subject(subjects: Vec<u32>, subject_code:u32) -> b
                           // --------- ACCOUNTS DATA STRUCTURES ('CTX' PARAM IN 'teaching_project_handler' MOD FUNCTIONS) ----- 
 
 #[derive(Accounts)]
-#[instruction(_specification: String)]
-pub struct CreateIdHandler<'info> {
+pub struct InitializeSystem <'info> {
 
     #[account(mut)]
     pub authority: Signer<'info>,
@@ -578,20 +588,19 @@ pub struct CreateIdHandler<'info> {
     #[account(
         init,
         payer = authority,
-        space = size_of::<IdHandler>() + 140,
-        seeds = [(_specification.clone() + "IdHandler").as_bytes().as_ref()],
-        bump
+        space = size_of::<SystemInitialization>() + (8 as usize),
+        seeds = [b"systemInitialization"],
+        bump,
     )]
-    pub specification_id_handler: Account<'info,IdHandler>,
+    pub initialization_system_account: Account<'info, SystemInitialization>,
 
-    pub system_program: Program<'info,System>
-}
-
-#[derive(Accounts)]
-pub struct CreateCodeIdSubjectRelation <'info> {
-
-    #[account(mut)]
-    pub authority: Signer<'info>,
+    #[account(
+        has_one = authority,
+        seeds=[b"highRank", authority.key().as_ref()],
+        bump,
+        constraint = high_rank_account.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c"
+    )]
+    pub high_rank_account: Account<'info, HighRank>,
 
     #[account(
         init,
@@ -602,8 +611,45 @@ pub struct CreateCodeIdSubjectRelation <'info> {
     )]
     pub code_id_subject_relation: Account<'info, CodeIdSubjectRelation>,
 
-    pub system_program: Program<'info,System>
+    #[account(
+        init,
+        payer = authority,
+        space = size_of::<IdHandler>() + 140,
+        seeds = [b"degreeIdHandler"],
+        bump
+    )]
+    pub degree_id_handler: Account<'info,IdHandler>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = size_of::<IdHandler>() + 140,
+        seeds = [b"facultyIdHandler"],
+        bump
+    )]
+    pub faculty_id_handler: Account<'info,IdHandler>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = size_of::<IdHandler>() + 140,
+        seeds = [b"specialtyIdHandler"],
+        bump
+    )]
+    pub specialty_id_handler: Account<'info,IdHandler>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = size_of::<IdHandler>() + 140,
+        seeds = [b"subjectIdHandler"],
+        bump
+    )]
+    pub subject_id_handler: Account<'info,IdHandler>,
+
+    pub system_program: Program<'info,System>,
 }
+
 
 #[derive(Accounts)]
 #[instruction (user_type_code: String)]
@@ -640,6 +686,13 @@ pub struct CreateProfessor<'info> {
 
     #[account(mut)]
     pub authority: Signer<'info>,
+
+    #[account(
+        seeds = [b"systemInitialization"],
+        bump,
+        constraint = initialization_system_account.system_is_initialized == true @ ErrorCode::SystemIsNotInitializated
+    )]
+    pub initialization_system_account: Account<'info, SystemInitialization>,
 
     #[account(
         init_if_needed,
@@ -682,6 +735,13 @@ pub struct CreateStudent<'info> {
     pub authority: Signer<'info>,
 
     #[account(
+        seeds = [b"systemInitialization"],
+        bump,
+        constraint = initialization_system_account.system_is_initialized == true @ ErrorCode::SystemIsNotInitializated
+    )]
+    pub initialization_system_account: Account<'info, SystemInitialization>,
+
+    #[account(
         init_if_needed,
         payer = authority,
         space = size_of::<IdHandler>() + 140,
@@ -721,6 +781,13 @@ pub struct CreateFaculty<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
+    #[account(
+        seeds = [b"systemInitialization"],
+        bump,
+        constraint = initialization_system_account.system_is_initialized == true @ ErrorCode::SystemIsNotInitializated
+    )]
+    pub initialization_system_account: Account<'info, SystemInitialization>,
+
     #[account(mut)]
     pub faculty_id_handler: Account<'info,IdHandler>,
 
@@ -733,7 +800,7 @@ pub struct CreateFaculty<'info> {
         seeds=[b"faculty", faculty_id_handler.smaller_id_available.to_le_bytes().as_ref()], 
         bump,
         constraint = high_rank.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
-        constraint = name.len() <= 500
+        constraint = name.len() <= 50
     )]
     pub faculty_account: Account<'info, Faculty>,
 
@@ -746,6 +813,13 @@ pub struct CreateDegree<'info> {
 
     #[account(mut)]
     pub authority: Signer<'info>,
+
+    #[account(
+        seeds = [b"systemInitialization"],
+        bump,
+        constraint = initialization_system_account.system_is_initialized == true @ ErrorCode::SystemIsNotInitializated
+    )]
+    pub initialization_system_account: Account<'info, SystemInitialization>,
 
     #[account(mut)]
     pub degree_id_handler: Account<'info,IdHandler>,
@@ -777,6 +851,13 @@ pub struct CreateSpecialty <'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
+    #[account(
+        seeds = [b"systemInitialization"],
+        bump,
+        constraint = initialization_system_account.system_is_initialized == true @ ErrorCode::SystemIsNotInitializated
+    )]
+    pub initialization_system_account: Account<'info, SystemInitialization>,
+
     #[account(mut)]
     pub specialty_id_handler: Account<'info, IdHandler>,
 
@@ -801,11 +882,18 @@ pub struct CreateSpecialty <'info> {
 }
 
 #[derive(Accounts)]
-#[instruction (name: String, degree_id: i32, specialty_id: i32, course: SubjectCourse, code: u32)]
+#[instruction (name: String, degree_id: i32, specialty_id: i32, course: SubjectCourse, code: u32, teaching_project_reference: String)]
 pub struct CreateSubject<'info> {
 
     #[account(mut)]
     pub authority: Signer<'info>,
+
+    #[account(
+        seeds = [b"systemInitialization"],
+        bump,
+        constraint = initialization_system_account.system_is_initialized == true @ ErrorCode::SystemIsNotInitializated
+    )]
+    pub initialization_system_account: Account<'info, SystemInitialization>,
     
     #[account(mut, has_one = authority)]      // Se comprueba que la cuenta de "Alto cargo" pasada pertenece a quien firma la transacción (autenticación)
     pub high_rank: Account<'info, HighRank>,
@@ -822,14 +910,33 @@ pub struct CreateSubject<'info> {
 
     #[account(init, 
         payer=authority, 
-        space = size_of::<Subject>() + name.as_bytes().len(), 
+        space = size_of::<Subject>() + name.as_bytes().len() + teaching_project_reference.as_bytes().len(), 
         seeds=[b"subject", subject_id_handler.smaller_id_available.to_le_bytes().as_ref()], 
         bump,
         constraint = high_rank.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
         constraint = (degree_id >= 1) && (degree_id < degree_id_handler.smaller_id_available),
-        constraint = (specialty_id == -1) || (specialty_id >= 1 && specialty_id < specialty_id_handler.smaller_id_available)
+        constraint = (specialty_id == -1) || (specialty_id >= 1 && specialty_id < specialty_id_handler.smaller_id_available),
+        constraint = teaching_project_reference.len() == 46 @ ErrorCode::IncorrectTeachingProjectReference
     )]
     pub subject_account: Account<'info, Subject>,
+
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = size_of::<IdHandler>() + 140,
+        seeds = [b"proposalIdHandler", code.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub proposal_id_handler: Account<'info,IdHandler>,
+
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = size_of::<IdHandler>() + 140,
+        seeds = [b"professorProposalIdHandler", code.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub professor_proposal_id_handler: Account<'info, IdHandler>,
 
     #[account(
         mut,
@@ -847,18 +954,27 @@ pub struct CreateProposalByStudent <'info> {
 
     #[account(mut)]
     pub authority: Signer<'info>,
+
+    #[account(
+        seeds = [b"systemInitialization"],
+        bump,
+        constraint = initialization_system_account.system_is_initialized == true @ ErrorCode::SystemIsNotInitializated
+    )]
+    pub initialization_system_account: Account<'info, SystemInitialization>,
     
     #[account(mut, has_one = authority)]      
     pub student_creator: Account<'info, Student>,
 
-    #[account(mut)]
+    #[account(
+        mut,
+        seeds = [b"proposalIdHandler", subject_account.code.to_le_bytes().as_ref()],
+        bump
+    )]
     pub proposal_id_handler: Account<'info,IdHandler>,
 
     #[account(
-        init_if_needed,
-        payer = authority,
-        space = size_of::<IdHandler>() + 140,
-        seeds = [b"professorProposalIdHandler"],
+        mut,
+        seeds = [b"professorProposalIdHandler", subject_account.code.to_le_bytes().as_ref()],
         bump
     )]
     pub professor_proposal_id_handler: Account<'info, IdHandler>,
@@ -870,7 +986,7 @@ pub struct CreateProposalByStudent <'info> {
         init, 
         payer=authority, 
         space = size_of::<Proposal>() + title.as_bytes().len() + content.as_bytes().len() + 40, 
-        seeds=[b"proposal", proposal_id_handler.smaller_id_available.to_le_bytes().as_ref()], 
+        seeds=[b"proposal", proposal_id_handler.smaller_id_available.to_le_bytes().as_ref(), subject_account.code.to_le_bytes().as_ref()], 
         bump,
         constraint = student_creator.identifier_code_hash == "318aee3fed8c9d040d35a7fc1fa776fb31303833aa2de885354ddf3d44d8fb69",
         constraint = title.len() <= 100 && content.len() <= 2500       
@@ -879,8 +995,8 @@ pub struct CreateProposalByStudent <'info> {
 
     #[account(init,
         payer = authority,
-        space = size_of::<ProfessorProposal>() + title.len() + 20,
-        seeds = [b"professorProposal", evaluate_professor_proposal_id_handler(professor_proposal_id_handler.smaller_id_available).to_le_bytes().as_ref()],
+        space = size_of::<ProfessorProposal>() + title.len() + 20 + 60,
+        seeds = [b"professorProposal", professor_proposal_id_handler.smaller_id_available.to_le_bytes().as_ref(), subject_account.code.to_le_bytes().as_ref()],
         bump,
     )]
     pub professor_proposal_account: Account<'info, ProfessorProposal>,
@@ -892,7 +1008,8 @@ pub struct CreateProposalByStudent <'info> {
         realloc = 
             size_of::<Subject>() + 
             (subject_account.name.as_bytes().len() as usize) - (20 as usize) + 
-            (subject_account.pending_proposals.len() as u16 * size_of::<i32> as u16 + 8_u16) as usize - (20 as usize),
+            (subject_account.teaching_project_reference.as_bytes().len() as usize) - (20 as usize) +
+            (subject_account.pending_proposals.len() as u16 * 4_u16 + 8_u16) as usize - (20 as usize),
         realloc::payer = authority,
         realloc::zero = false
         
@@ -916,18 +1033,27 @@ pub struct CreateProposalByProfessor <'info> {
 
     #[account(mut)]
     pub authority: Signer<'info>,
+
+    #[account(
+        seeds = [b"systemInitialization"],
+        bump,
+        constraint = initialization_system_account.system_is_initialized == true @ ErrorCode::SystemIsNotInitializated
+    )]
+    pub initialization_system_account: Account<'info, SystemInitialization>,
     
     #[account(mut, has_one = authority)]      
     pub professor_creator: Account<'info, Professor>,
 
-    #[account(mut)]
+     #[account(
+        mut,
+        seeds = [b"proposalIdHandler", subject_account.code.to_le_bytes().as_ref()],
+        bump
+    )]
     pub proposal_id_handler: Account<'info,IdHandler>,
 
     #[account(
-        init_if_needed,
-        payer = authority,
-        space = size_of::<IdHandler>() + 140,
-        seeds = [b"professorProposalIdHandler"],
+        mut,
+        seeds = [b"professorProposalIdHandler", subject_account.code.to_le_bytes().as_ref()],
         bump
     )]
     pub professor_proposal_id_handler: Account<'info, IdHandler>,
@@ -939,18 +1065,18 @@ pub struct CreateProposalByProfessor <'info> {
         init, 
         payer=authority, 
         space = size_of::<Proposal>() + title.as_bytes().len() + content.as_bytes().len() + 40, 
-        seeds=[b"proposal", proposal_id_handler.smaller_id_available.to_le_bytes().as_ref()], 
+        seeds=[b"proposal", proposal_id_handler.smaller_id_available.to_le_bytes().as_ref(), subject_account.code.to_le_bytes().as_ref()], 
         bump,
         constraint = professor_creator.identifier_code_hash == "edee29f882543b956620b26d0ee0e7e950399b1c4222f5de05e06425b4c995e9",
-        constraint = title.len() <= 100 && content.len() <= 2500
+        constraint = title.len() <= 100 && content.len() <= 2500       
     )]
     pub proposal_account: Account<'info, Proposal>,
 
     #[account(init,
-              payer = authority,
-              space = size_of::<ProfessorProposal>() + title.len() + 20,
-              seeds = [b"professorProposal", evaluate_professor_proposal_id_handler(professor_proposal_id_handler.smaller_id_available).to_le_bytes().as_ref()],
-              bump,
+        payer = authority,
+        space = size_of::<ProfessorProposal>() + title.len() + 20,
+        seeds = [b"professorProposal", professor_proposal_id_handler.smaller_id_available.to_le_bytes().as_ref(), subject_account.code.to_le_bytes().as_ref()],
+        bump,
     )]
     pub professor_proposal_account: Account<'info, ProfessorProposal>,
 
@@ -962,7 +1088,8 @@ pub struct CreateProposalByProfessor <'info> {
         realloc = 
             size_of::<Subject>() + 
             (subject_account.name.as_bytes().len() as usize) - (20 as usize) + 
-            (subject_account.pending_proposals.len() as u16 * size_of::<i32> as u16 + 8_u16) as usize - (20 as usize),
+            (subject_account.teaching_project_reference.as_bytes().len() as usize) - (20 as usize) +
+            (subject_account.pending_proposals.len() as u16 * 4_16 + 8_u16) as usize - (20 as usize),
         realloc::payer = authority,
         realloc::zero = false
     )]
@@ -991,7 +1118,7 @@ pub struct VoteProposalByStudent <'info> {
 
     #[account(
         mut,
-        seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref()], 
+        seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref(), subject_account.code.to_le_bytes().as_ref()], 
         bump,
         constraint = voting_student.identifier_code_hash == "318aee3fed8c9d040d35a7fc1fa776fb31303833aa2de885354ddf3d44d8fb69",
         constraint = ProposalState::VotationInProgress == proposal_account.state @ErrorCode::VotationIsNotOpen,                                     
@@ -1016,7 +1143,7 @@ pub struct VoteProposalByStudent <'info> {
 
     #[account(
         mut,
-        seeds = [b"professorProposal", professor_proposal_account.id.to_le_bytes().as_ref()],
+        seeds = [b"professorProposal", professor_proposal_account.id.to_le_bytes().as_ref(), subject_account.code.to_le_bytes().as_ref()],
         bump,
         constraint = professor_proposal_account.original_proposal_id == proposal_account.id,
         constraint = professor_proposal_account.id < professor_proposal_id_handler.smaller_id_available
@@ -1040,7 +1167,7 @@ pub struct VoteProposalByProfessor <'info> {
 
     #[account(
         mut,
-        seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref()], 
+        seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref(), subject_account.code.to_le_bytes().as_ref()], 
         bump,
         constraint = voting_professor.identifier_code_hash == "edee29f882543b956620b26d0ee0e7e950399b1c4222f5de05e06425b4c995e9",
         constraint = ProposalState::VotationInProgress == proposal_account.state @ ErrorCode::VotationIsNotOpen,
@@ -1065,7 +1192,7 @@ pub struct VoteProposalByProfessor <'info> {
 
     #[account(
         mut,
-        seeds = [b"professorProposal", professor_proposal_account.id.to_le_bytes().as_ref()],
+        seeds = [b"professorProposal", professor_proposal_account.id.to_le_bytes().as_ref(), subject_account.code.to_le_bytes().as_ref()],
         bump,
         constraint = professor_proposal_account.original_proposal_id == proposal_account.id,
         constraint = professor_proposal_account.id < professor_proposal_id_handler.smaller_id_available
@@ -1076,6 +1203,7 @@ pub struct VoteProposalByProfessor <'info> {
 }
 
 #[derive(Accounts)]
+#[instruction (teaching_project_reference: String)]
 pub struct UpdateProposalByProfessor <'info> {
 
     #[account(mut)]
@@ -1086,7 +1214,7 @@ pub struct UpdateProposalByProfessor <'info> {
     
     #[account(
         mut,
-        seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref()], 
+        seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref(), subject_account.code.to_le_bytes().as_ref()], 
         bump,
         constraint = professor_account.identifier_code_hash == "edee29f882543b956620b26d0ee0e7e950399b1c4222f5de05e06425b4c995e9",
         constraint = ProposalState::WaitingForTeacher == proposal_account.state  @  ErrorCode::VotationIsNotWaitingForTeacher                                           
@@ -1095,12 +1223,19 @@ pub struct UpdateProposalByProfessor <'info> {
 
     #[account(
         mut,
-        seeds = [b"professorProposal", professor_proposal_account.id.to_le_bytes().as_ref()],
+        seeds = [b"professorProposal", professor_proposal_account.id.to_le_bytes().as_ref(), subject_account.code.to_le_bytes().as_ref()],
         bump,
         constraint = professor_proposal_account.original_proposal_id == proposal_account.id,
-        constraint = proposal_account.associated_professor_proposal_id == professor_proposal_account.id
+        constraint = proposal_account.associated_professor_proposal_id == professor_proposal_account.id,
+        constraint = teaching_project_reference.len() == 46 @ ErrorCode::IncorrectTeachingProjectReference
     )]
     pub professor_proposal_account: Account<'info, ProfessorProposal>,
+
+    #[account(
+        seeds = [b"subject", proposal_account.subject_id.to_le_bytes().as_ref()],
+        bump,
+    )]
+    pub subject_account: Account<'info, Subject>,
 
 }
 
@@ -1115,7 +1250,7 @@ pub struct UpdateProposalByHighRank <'info> {
 
     #[account(
         mut,
-        seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref()], 
+        seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref(), subject_account.code.to_le_bytes().as_ref() ], 
         bump,
         constraint = high_rank_account.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
         constraint = ProposalState::WaitingForHighRank == proposal_account.state  @  ErrorCode::VotationIsNotWaitingForHighRank,                                       
@@ -1124,18 +1259,24 @@ pub struct UpdateProposalByHighRank <'info> {
 
     #[account(
         mut,
-        seeds = [b"professorProposal", professor_proposal_account.id.to_le_bytes().as_ref()],
+        seeds = [b"professorProposal", professor_proposal_account.id.to_le_bytes().as_ref(), subject_account.code.to_le_bytes().as_ref()],
         bump,
         constraint = professor_proposal_account.original_proposal_id == proposal_account.id,
         constraint = proposal_account.associated_professor_proposal_id == professor_proposal_account.id,
-        
     )]
-    pub professor_proposal_account: Account<'info, ProfessorProposal>
+    pub professor_proposal_account: Account<'info, ProfessorProposal>,
+
+    #[account(
+        mut,
+        seeds = [b"subject", proposal_account.subject_id.to_le_bytes().as_ref()],
+        bump,
+    )]
+    pub subject_account: Account<'info, Subject>,
 
 }
 
 #[derive(Accounts)]
-#[instruction (user_type_code: String)]
+#[instruction (user_type_code: String, _subject_code: u32)]
 pub struct GiveCreditToWinningStudent <'info> {
 
     #[account(mut)]
@@ -1149,7 +1290,7 @@ pub struct GiveCreditToWinningStudent <'info> {
 
     #[account(
         mut,
-        seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref()], 
+        seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref(), _subject_code.to_le_bytes().as_ref()], 
         bump,
         constraint = high_rank_account.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
         constraint = ProposalState::Accepted == proposal_account.state  @  ErrorCode::VotationIsNotAccepted,                                       
@@ -1214,7 +1355,7 @@ impl<'info> GiveCreditToWinningStudent <'info> {
 }
 
 #[derive(Accounts)]
-#[instruction (user_type_code: String)]
+#[instruction (user_type_code: String, _subject_code: u32)]
 pub struct GiveCreditToWinningProfessor <'info> {
 
     #[account(mut)]
@@ -1228,12 +1369,13 @@ pub struct GiveCreditToWinningProfessor <'info> {
 
     #[account(
         mut,
-        seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref()], 
+        seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref(), _subject_code.to_le_bytes().as_ref()], 
         bump,
         constraint = high_rank_account.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
         constraint = ProposalState::Accepted == proposal_account.state  @  ErrorCode::VotationIsNotAccepted,                                       
     )]
     pub proposal_account: Account<'info, Proposal>,
+
 
     #[account(
         mut,
@@ -1303,7 +1445,7 @@ pub struct DeleteRejectedProposal <'info> {
 
     #[account(
         mut,
-        seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref()], 
+        seeds=[b"proposal", proposal_account.id.to_le_bytes().as_ref(), subject_account.code.to_le_bytes().as_ref()],
         bump,
         constraint = high_rank_account.identifier_code_hash == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
         constraint = ProposalState::Rejected == proposal_account.state  @  ErrorCode::VotationIsNotRejected,
@@ -1313,7 +1455,7 @@ pub struct DeleteRejectedProposal <'info> {
 
     #[account(
         mut,
-        seeds = [b"professorProposal", professor_proposal_account.id.to_le_bytes().as_ref()],
+        seeds = [b"professorProposal", professor_proposal_account.id.to_le_bytes().as_ref(), subject_account.code.to_le_bytes().as_ref()],
         bump,
         constraint = professor_proposal_account.original_proposal_id == proposal_account.id,
         constraint = proposal_account.associated_professor_proposal_id == professor_proposal_account.id,
@@ -1411,6 +1553,7 @@ pub struct Subject {
     code: u32,
     degree_id: i32,
     specialty_id: i32,
+    teaching_project_reference: String,
     course: SubjectCourse,
     pending_proposals: Vec<i32>
 }
@@ -1427,7 +1570,7 @@ pub struct Proposal {
     creator_public_key: Pubkey,
     user_type: ProposalUserType,                  
     subject_id: i32,
-    supporting_votes: u32,
+    supporting_votes: u32,  
     against_votes: u32,
     expected_votes: u32,
     publishing_timestamp: i64,
@@ -1446,8 +1589,12 @@ pub struct ProfessorProposal {
     name: String,
     publishing_timestamp: i64,
     ending_timestamp: i64,
+    teaching_project_reference: String,
     state: ProfessorProposalState
 }
+
+
+// ------ Internal Performance of the Smart Contract ------ //
 
 
 #[account]
@@ -1457,6 +1604,11 @@ pub struct CodeIdSubjectRelation {
     code_value: Vec<AdditionalSubjectInfo>
 }
 
+#[account]
+#[derive(Default)]
+pub struct SystemInitialization {
+    system_is_initialized: bool
+}
 
 #[derive(AnchorSerialize, AnchorDeserialize, Copy, Clone, PartialEq)]
 pub struct AdditionalSubjectInfo {
@@ -1662,7 +1814,13 @@ pub enum ErrorCode {
     UserDoesNotBelongToTheSubject,
 
     #[msg("Additional subject's info not found")]
-    AdditionalSubjectInfoNotFound
+    AdditionalSubjectInfoNotFound,
+
+    #[msg("System has not been initializated by a HighRank yet")]
+    SystemIsNotInitializated,
+    
+    #[msg("Incorrect Teaching Project reference for IPFS")]
+    IncorrectTeachingProjectReference
 }
 
 
