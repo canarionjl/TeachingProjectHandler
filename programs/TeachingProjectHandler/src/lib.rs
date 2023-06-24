@@ -399,6 +399,7 @@ pub mod teaching_project_handler {
 
         let proposal_account = &mut *ctx.accounts.proposal_account;
         let associated_professor_proposal_account = &mut *ctx.accounts.professor_proposal_account;
+        let subject_account = &mut *ctx.accounts.subject_account;
 
         let proposal_state: ProposalState;
         let professor_proposal_state: ProfessorProposalState;
@@ -406,6 +407,7 @@ pub mod teaching_project_handler {
         if accepted {
             proposal_state = ProposalState:: Accepted;
             professor_proposal_state = ProfessorProposalState::Complete;
+            subject_account.teaching_project_reference = associated_professor_proposal_account.teaching_project_reference.clone();
         } else {
             proposal_state = ProposalState:: WaitingForTeacher;
             professor_proposal_state = ProfessorProposalState::Pending;
@@ -1379,7 +1381,7 @@ pub struct GiveCreditToWinningProfessor <'info> {
 
     #[account(
         mut,
-        seeds=[b"student", proposal_account.creator_public_key.as_ref()], 
+        seeds=[b"professor", proposal_account.creator_public_key.to_bytes().as_ref()], 
         bump,
         constraint = creator_account.identifier_code_hash == "edee29f882543b956620b26d0ee0e7e950399b1c4222f5de05e06425b4c995e9",
         constraint = creator_account.id == proposal_account.creator_id                             

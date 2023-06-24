@@ -1900,26 +1900,6 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
   });
 
 
-  // it("Empty Test", async () => {
-
-  //   const proposal = await fetchProposalAccount(program, 4, 43222)
-
-  //   for (var i: number = 1; i < proposal.expectedVotes; i++) {
-  //     alternativeWallet = await createWallet(connection, 10);
-  //     await initializeStudent(program, alternativeWallet, [43222])
-  //     let vote_signature = await voteProposalByStudent(program, alternativeWallet, proposal.id, proposal.subjectId, proposal.associatedProfessorProposalId, true, 43222)
-  //     await connection.confirmTransaction(vote_signature.toString())
-  //     const proposal_inside = await fetchProposalAccount(program, 4, 43222)
-  //     console.log(proposal_inside)
-
-  //   }
-
-  //   const proposal2 = await fetchProposalAccount(program, 4, 43222)
-  //   console.log(proposal2)
-  //   assert.equal(1, 1)
-  // });
-
-
 });
 
 
