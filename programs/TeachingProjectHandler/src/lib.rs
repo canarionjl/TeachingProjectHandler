@@ -476,9 +476,9 @@ pub mod teaching_project_handler {
         Ok (true)
     }
    
-    pub fn initializate_new_system (ctx: Context <InitializeSystem>) -> Result<bool> {
+    pub fn initializate_new_system (ctx: Context <InitializeSystem>, _user_type_code:String) -> Result<bool> {
 
-        // Initializating the Subjects' Code-Id Relation
+        //Initializating the Subjects' Code-Id Relation
         let code_id_subject_relation_account = &mut *ctx.accounts.code_id_subject_relation;
         code_id_subject_relation_account.code_value = vec![];
         code_id_subject_relation_account.key_id = vec![];
@@ -582,6 +582,7 @@ fn evaluate_if_user_belong_to_subject(subjects: Vec<u32>, subject_code:u32) -> b
                           // --------- ACCOUNTS DATA STRUCTURES ('CTX' PARAM IN 'teaching_project_handler' MOD FUNCTIONS) ----- 
 
 #[derive(Accounts)]
+#[instruction(_user_type_code: String)]
 pub struct InitializeSystem <'info> {
 
     #[account(mut)]
@@ -649,7 +650,29 @@ pub struct InitializeSystem <'info> {
     )]
     pub subject_id_handler: Account<'info,IdHandler>,
 
-    pub system_program: Program<'info,System>,
+    /// CHECK: 'mint_authority' is an UncheckedAccount since it's just a PDA that references the authority of any HighRank over the tokens
+    #[account(
+        mut, 
+        seeds = [b"mint_authority",  mint.key().as_ref(), _user_type_code.as_bytes().as_ref() ],
+        bump,
+        constraint = digest(_user_type_code) == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c"
+    )]
+    pub mint_authority_account: UncheckedAccount<'info>,
+
+    #[account(
+        init_if_needed,
+        payer = authority,
+        mint::decimals = 1,
+        mint::authority = mint_authority_account,
+        seeds = [b"creditToken"],
+        bump
+    )]
+    pub mint: Account<'info, Mint>,
+
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+    // pub associated_token_program: Program<'info, AssociatedToken>,
+    // pub rent: Sysvar<'info, Rent>, 
 }
 
 
@@ -726,7 +749,20 @@ pub struct CreateProfessor<'info> {
     )]
     pub code_id_subject_relation: Account<'info, CodeIdSubjectRelation>,
 
+    #[account()]
+    pub mint: Account<'info, Mint>,
+
+    #[account(
+        init_if_needed, 
+        payer = authority, 
+        associated_token::mint = mint,
+        associated_token::authority = authority)]
+    pub token_account: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub rent: Sysvar<'info, Rent>, 
 }
 
 #[derive(Accounts)]
@@ -773,7 +809,20 @@ pub struct CreateStudent<'info> {
     )]
     pub code_id_subject_relation: Account<'info, CodeIdSubjectRelation>,
 
-    pub system_program: Program<'info,System>
+    #[account()]
+    pub mint: Account<'info, Mint>,
+
+    #[account(
+        init_if_needed, 
+        payer = authority, 
+        associated_token::mint = mint,
+        associated_token::authority = authority)]
+    pub token_account: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub rent: Sysvar<'info, Rent>
 }
 
 #[derive(Accounts)]
@@ -1299,6 +1348,7 @@ pub struct GiveCreditToWinningStudent <'info> {
     )]
     pub proposal_account: Account<'info, Proposal>,
 
+
     #[account(
         mut,
         seeds=[b"student", proposal_account.creator_public_key.as_ref()], 
@@ -1308,9 +1358,8 @@ pub struct GiveCreditToWinningStudent <'info> {
     )]
     pub creator_account: Account<'info, Student>,
 
-
-  /// CHECK: 'mint_authority' is an UncheckedAccount since it's just a PDA that references the authority of any HighRank over the tokens
-  #[account(
+    /// CHECK: 'mint_authority' is an UncheckedAccount since it's just a PDA that references the authority of any HighRank over the tokens
+    #[account(
         mut, 
         seeds = [b"mint_authority", mint.key().as_ref(), user_type_code.as_bytes().as_ref()],
         bump,
@@ -1318,21 +1367,10 @@ pub struct GiveCreditToWinningStudent <'info> {
     )]
     pub mint_authority_account: UncheckedAccount<'info>,
 
-    #[account(
-        init_if_needed,
-        payer = authority,
-        mint::decimals = 1,
-        mint::authority = mint_authority_account,
-        seeds = [b"creditToken"],
-        bump
-    )]
+    #[account(mut)]
     pub mint: Account<'info, Mint>,
 
-    #[account(
-        init_if_needed, 
-        payer = authority, 
-        associated_token::mint = mint,
-        associated_token::authority = creator_account)]
+    #[account(mut)]
     pub token_account: Account<'info, TokenAccount>,
 
     pub token_program: Program<'info, Token>,
@@ -1389,30 +1427,19 @@ pub struct GiveCreditToWinningProfessor <'info> {
     pub creator_account: Account<'info, Professor>,
 
 
-  /// CHECK: 'mint_authority' is an UncheckedAccount since it's just a PDA that references the authority of any HighRank over the tokens
-  #[account(
-        mut, 
-        seeds = [b"mint_authority", mint.key().as_ref(), user_type_code.as_bytes().as_ref()],
-        bump,
-        constraint = digest(user_type_code) == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c"
+   /// CHECK: 'mint_authority' is an UncheckedAccount since it's just a PDA that references the authority of any HighRank over the tokens
+   #[account(
+    mut, 
+    seeds = [b"mint_authority", mint.key().as_ref(), user_type_code.as_bytes().as_ref()],
+    bump,
+    constraint = digest(user_type_code) == "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c"
     )]
     pub mint_authority_account: UncheckedAccount<'info>,
 
-    #[account(
-        init_if_needed,
-        payer = authority,
-        mint::decimals = 1,
-        mint::authority = mint_authority_account,
-        seeds = [b"creditToken"],
-        bump
-    )]
+    #[account(mut)]
     pub mint: Account<'info, Mint>,
 
-    #[account(
-        init_if_needed, 
-        payer = authority, 
-        associated_token::mint = mint,
-        associated_token::authority = creator_account)]
+    #[account(mut)]
     pub token_account: Account<'info, TokenAccount>,
 
     pub token_program: Program<'info, Token>,

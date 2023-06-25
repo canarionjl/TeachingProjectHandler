@@ -83,6 +83,9 @@ const initializeProfessor = async (program: Program<TeachingProjectHandler>, aut
   const codeIdRelation = await findPDAforCodeIdRelation(program.programId)
   const systemInitialization = await findPDAforSystemInitialization(program.programId)
 
+  const mint = await findPDAforMint(program.programId)
+  const associatedTokenAccount = await getAssociatedTokenAddress(mint, authority.publicKey, false);
+
   const result = await program.methods.createProfessor("2222", subjects)
     .accounts({
       authority: authority.publicKey,
@@ -91,7 +94,12 @@ const initializeProfessor = async (program: Program<TeachingProjectHandler>, aut
       highRankIdHandler: high_rank_id_handler,
       professorAccount: pda,
       codeIdSubjectRelation: codeIdRelation,
+      mint: mint,
+      tokenAccount: associatedTokenAccount,
+      tokenProgram: TOKEN_PROGRAM_ID,
       systemProgram: anchor.web3.SystemProgram.programId,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+      rent: anchor.web3.SYSVAR_RENT_PUBKEY
     })
     .signers([authority])
     .rpc();
@@ -107,6 +115,9 @@ const initializeStudent = async (program: Program<TeachingProjectHandler>, autho
   const codeIdRelation = await findPDAforCodeIdRelation(program.programId)
   const systemInitialization = await findPDAforSystemInitialization(program.programId)
 
+  const mint = await findPDAforMint(program.programId)
+  const associatedTokenAccount = await getAssociatedTokenAddress(mint, authority.publicKey, false);
+
   const result = await program.methods.createStudent("3333", subjects)
     .accounts({
       authority: authority.publicKey,
@@ -115,7 +126,12 @@ const initializeStudent = async (program: Program<TeachingProjectHandler>, autho
       highRankIdHandler: high_rank_id_handler,
       studentAccount: pda,
       codeIdSubjectRelation: codeIdRelation,
-      systemProgram: anchor.web3.SystemProgram.programId
+      mint: mint,
+      tokenAccount: associatedTokenAccount,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      systemProgram: anchor.web3.SystemProgram.programId,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+      rent: anchor.web3.SYSVAR_RENT_PUBKEY
     })
     .signers([authority])
     .rpc();
@@ -133,7 +149,11 @@ const initializeSystem = async (program: Program<TeachingProjectHandler>, author
   const code_id_relation_account = await findPDAforCodeIdRelation(program.programId)
   const high_rank_account = await findPDAforHighRank(program.programId, authority.publicKey)
 
-  const result = await program.methods.initializateNewSystem()
+
+  const mint = await findPDAforMint(program.programId)
+  const [mint_auth_pda, bump] = await findPDAforMintAuthority(program.programId, mint, "1111")
+
+  const result = await program.methods.initializateNewSystem("1111")
     .accounts({
       authority: authority.publicKey,
       initializationSystemAccount: initialization_system_account,
@@ -143,10 +163,15 @@ const initializeSystem = async (program: Program<TeachingProjectHandler>, author
       facultyIdHandler: faculty_id_generator_pda,
       specialtyIdHandler: specialty_id_generator_pda,
       subjectIdHandler: subject_id_generator_pda,
+      mintAuthorityAccount: mint_auth_pda,
+      mint: mint,
+      tokenProgram: TOKEN_PROGRAM_ID,
       systemProgram: anchor.web3.SystemProgram.programId,
     })
     .signers([authority])
     .rpc();
+
+
 
   return result;
 }
@@ -224,7 +249,7 @@ const initializeSpecialty = async (program: Program<TeachingProjectHandler>, aut
   return result;
 }
 
-const initializeSubject = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, id: number, name: string, degree_id: number, specialty_id: number, course: any, code: number, reference:string): Promise<String> => {
+const initializeSubject = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, id: number, name: string, degree_id: number, specialty_id: number, course: any, code: number, reference: string): Promise<String> => {
 
   const pda = await findPDAforSubject(program.programId, id)
   const high_rank_pda = await findPDAforHighRank(program.programId, authority.publicKey)
@@ -391,21 +416,20 @@ const updateProposalByHighRank = async (program: Program<TeachingProjectHandler>
   return result;
 }
 
-const giveCreditToStudent = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, proposal_id: number, student_creator_public_key: anchor.web3.PublicKey, identifier_code: string, subject_code: number, subject_id: number): Promise<String> => {
+const giveCreditToStudent = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, proposal_id: number, student_creator_public_key: anchor.web3.PublicKey, identifier_code: string, subject_code: number): Promise<String> => {
 
   const high_rank_account = await findPDAforHighRank(program.programId, authority.publicKey)
   const proposal_account_pda = await findPDAforProposal(program.programId, proposal_id, subject_code)
   const creator_account_pda = await findPDAforStudent(program.programId, student_creator_public_key)
   const mint = await findPDAforMint(program.programId)
   const [pda, bump] = await findPDAforMintAuthority(program.programId, mint, identifier_code)
-  const subject_account_pda = await findPDAforSubject(program.programId, subject_id)
 
   let mintAuthority: { pda: anchor.web3.PublicKey, bump: number };
   mintAuthority = { pda: pda, bump: bump };
 
-  const associatedTokenAccount = await getAssociatedTokenAddress(mint, creator_account_pda, true);
+  const associatedTokenAccount = await getAssociatedTokenAddress(mint, student_creator_public_key, false);
 
-  const result = await program.methods.giveCreditsToWinningStudent("1111", subject_code, mintAuthority.bump)
+  const result = await program.methods.giveCreditsToWinningStudent(identifier_code, subject_code, mintAuthority.bump)
     .accounts({
       authority: authority.publicKey,
       highRankAccount: high_rank_account,
@@ -692,17 +716,17 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
       assert.instanceOf(err, Error);
     }
 
-  //   The new ID that should be available in the ID's generator after creating the new HighRank account
+    //   The new ID that should be available in the ID's generator after creating the new HighRank account
     const newIdAvailable = idExpected + 1
 
-  //   Initializing HighRankAccount and getting the signature of the transaction
+    //   Initializing HighRankAccount and getting the signature of the transaction
     const signature = await initializeHighRank(program, wallet1);
 
-  //   Confirming the previous transaction in the validator node
-    await connection.confirmTransaction(signature.toString())
+    //   Confirming the previous transaction in the validator node
+    await connection.confirmTransaction(signature.toString(), "confirmed")
 
-  //   Getting all the information relative to the transaction that has been carried out
-    const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
+    //   Getting all the information relative to the transaction that has been carried out
+    const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed", maxSupportedTransactionVersion: 2 });
 
     /* Getting the Return Log from the transaction information in order to get the boolean returned from the SC (Rust) function
      * 'buffer' contains the raw binary information of the return, which contains the information of the boolean returned by the tested method
@@ -711,23 +735,23 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     const reader_U8 = new Borsh.BinaryReader(buffer).readU8;
     const program_return = Boolean(reader_U8);
 
-  //   Fetching the data of the new account created through its PDA
+    //   Fetching the data of the new account created through its PDA
     const newHighRankAccount = await fetchHighRankAccount(program, wallet1.publicKey);
 
-  //   Getting the data of the HighRank ID's generator
+    //   Getting the data of the HighRank ID's generator
     const highRankIdGeneratorAfterCreating = await fetchIdAccount(program, "highRank");
 
 
-  //   The ID of the new HighRank Account must be equal to the idExpected param (which is the ID provided by the ID's generator for HighRank)
+    //   The ID of the new HighRank Account must be equal to the idExpected param (which is the ID provided by the ID's generator for HighRank)
     expect(new anchor.BN(newHighRankAccount.id).eq(new anchor.BN(idExpected))).to.be.true;
 
-  //   The new smaller availabled ID on the ID's generator must be equal to the param newIdAvailable (i.e. the new id available must have been incremented in +1)
+    //   The new smaller availabled ID on the ID's generator must be equal to the param newIdAvailable (i.e. the new id available must have been incremented in +1)
     expect(new anchor.BN(highRankIdGeneratorAfterCreating.smallerIdAvailable).eq(new anchor.BN(newIdAvailable))).to.be.true;
 
-  //   The identifierCode hash must be equal to the sha256 hash of '1111' (which is the identifier of every highRank to have certain privileges)
+    //   The identifierCode hash must be equal to the sha256 hash of '1111' (which is the identifier of every highRank to have certain privileges)
     assert.equal(newHighRankAccount.identifierCodeHash, CryptoJS.SHA256("1111").toString());
 
-  //   The program must return true if everything is correct
+    //   The program must return true if everything is correct
     expect(program_return).to.be.true;
 
   });
@@ -738,8 +762,6 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
 
     // Giving extra funds to the HighRank to pay the initializacion space for the accounts
     getExtraFunds(connection, 50, wallet1)
-    getExtraFunds(connection, 50, wallet1)
-
 
     // Initializing the system by the HighRank owed by wallet1
     const signature = await initializeSystem(program, wallet1)
@@ -799,21 +821,15 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
    */
 
     await getExtraFunds(connection, 50, wallet2);
-    await getExtraFunds(connection, 50, wallet2);
-    await getExtraFunds(connection, 50, wallet2);
-    await getExtraFunds(connection, 50, wallet2);
-    await getExtraFunds(connection, 50, wallet2);
-    await getExtraFunds(connection, 50, wallet2);
-
 
     // Initializing ProfessorAccount and getting the signature of the transaction
     const signature = await initializeProfessor(program, wallet2, [43222, 43212]);
 
     // Confirming the previous transaction in the validator node
-    await connection.confirmTransaction(signature.toString())
+    await connection.confirmTransaction(signature.toString(), "confirmed")
 
     // Getting all the information relative to the transaction that has been carried out
-    const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
+    const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed", maxSupportedTransactionVersion: 2 });
 
     /* Getting the Return Log from the transaction information in order to get the boolean returned from the SC (Rust) function
      * 'buffer' contains the raw binary information of the return, which contains the information of the boolean returned by the tested method
@@ -834,6 +850,14 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     // The subjects that the professor belongs to must be equal to the ones passed by parameter 
     // 'deep.equal' is used to compare the actual content of the objects and not the memory reference (which will be always false since the references cannot be the same)'deep.equal' is used to compare the actual content of the objects and not the memory reference (which will be always false since the references cannot be the same)
     expect(newProfessorAccount.subjects).to.deep.equal([43222, 43212]);
+
+    //Fetching the token account and checking balance
+    const mint = await findPDAforMint(program.programId)
+    const professorAssociatedTokenAccount = await getAssociatedTokenAddress(mint, wallet2.publicKey, false);
+    const tokenAccountBuyerAfter = await getAccount(connection, professorAssociatedTokenAccount);
+    const balance = Number(tokenAccountBuyerAfter.amount);
+
+    expect(new anchor.BN(balance).eq(new anchor.BN(0))).to.be.true;
 
     // The program must return true if everything is correct
     expect(program_return).to.be.true;
@@ -885,10 +909,10 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     const signature = await initializeStudent(program, wallet3, [43222, 43212, 43123, 43124, 43125, 43126, 43127, 43128]);
 
     // Confirming the previous transaction in the validator node
-    await connection.confirmTransaction(signature.toString())
+    await connection.confirmTransaction(signature.toString(), "confirmed")
 
     // Getting all the information relative to the transaction that has been carried out
-    const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
+    const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed", maxSupportedTransactionVersion: 2 });
 
     /* Getting the Return Log from the transaction information in order to get the boolean returned from the SC (Rust) function
      * 'buffer' contains the raw binary information of the return, which contains the information of the boolean returned by the tested method
@@ -913,6 +937,12 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     assert.equal(newStudentAccount.identifierCodeHash, CryptoJS.SHA256("3333").toString());
 
     expect(newStudentAccount.subjects).to.deep.equal([43222, 43212, 43123, 43124, 43125, 43126, 43127, 43128]);
+
+    //Fetching the token account and checking balance
+    const mint = await findPDAforMint(program.programId)
+    const studentAssociatedTokenAccount = await getAssociatedTokenAddress(mint, wallet3.publicKey, false);
+    const tokenAccountBuyerAfter = await getAccount(connection, studentAssociatedTokenAccount);
+    const balance = Number(tokenAccountBuyerAfter.amount);
 
     // The program must return true if everything is correct
     expect(program_return).to.be.true;
@@ -1069,8 +1099,8 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
      * The aux professor's id is passed as part of the array of professors' id via 'auxProfessorAccount.id'
     */
     const signature = await initializeSubject(program, wallet1, idExpected, "Especialidad de prueba", 1, 1, { first: {} }, 43111, "QmPRKpTKznUt6sU8yjYBwWaECVBVBF8nMiL77W2hkhVsQs")
-    await connection.confirmTransaction(signature.toString())
-    const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed" });
+    await connection.confirmTransaction(signature.toString(), "confirmed")
+    const transaction = await connection.getTransaction(signature.toString(), { commitment: "confirmed", maxSupportedTransactionVersion: 2 });
     const [key, data, buffer] = getReturnLog(transaction);
 
     const newSubjectAccount = await fetchSubjectAccount(program, idExpected);
@@ -1231,7 +1261,7 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     // Creating new professor
 
     await initializeProfessor(program, wallet2, [subjectCode]);
-    getExtraFunds(connection, 50, wallet2) 
+    getExtraFunds(connection, 50, wallet2)
 
     // Creating new proposal
 
@@ -1319,8 +1349,6 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
 
     const account = await fetchProposalIdAccount(program, false, newSubjectAccount.code)
     idExpected = account.smallerIdAvailable
-
-
 
 
     try {
@@ -1555,7 +1583,7 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
   });
 
 
-    //--------------------------TEST THAT ONLY WORK BY MODIFYING CERTAIN CONDITIONS OF THE SMART CONTRACT-----------------------//
+  //--------------------------TEST THAT ONLY WORK BY MODIFYING CERTAIN CONDITIONS OF THE SMART CONTRACT-----------------------//
 
 
   /*
@@ -1776,28 +1804,21 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     expect(professorProposalAfterHighRankUpdating.state).to.deep.equal({ complete: {} });
     expect(proposalAccountAfterHighRankUpdating.state).to.deep.equal({ accepted: {} });
 
+    //Checking the giving of tokens
 
-    const creator_account_pda = await findPDAforStudent(program.programId, proposalAccountAfterHighRankUpdating.creatorPublicKey)
     const mint = await findPDAforMint(program.programId)
-    const studentAssociatedTokenAccount = await getAssociatedTokenAddress(mint, creator_account_pda, true);
+    const studentAssociatedTokenAccount = await getAssociatedTokenAddress(mint, proposalAccountAfterHighRankUpdating.creatorPublicKey, false);
 
     var balanceBeforeGiving: number = 0
 
-    try {
-      const tokenAccountBuyerBefore = await getAccount(connection, studentAssociatedTokenAccount);
-      balanceBeforeGiving = Number(tokenAccountBuyerBefore.amount)
-    } catch (err) {
-      assert.instanceOf(err, Error);
-      assert.include(err.toString(), "TokenAccountNotFoundError");
-    }
+    const tokenAccountBuyerBefore = await getAccount(connection, studentAssociatedTokenAccount);
+    balanceBeforeGiving = Number(tokenAccountBuyerBefore.amount)
 
-    await giveCreditToStudent(program, wallet1, proposalAccountAfterHighRankUpdating.id, proposalAccountAfterHighRankUpdating.creatorPublicKey, "1111", newSubjectAccount.code, newSubjectAccount.id)
+    await giveCreditToStudent(program, wallet1, proposalAccountAfterHighRankUpdating.id, proposalAccountAfterHighRankUpdating.creatorPublicKey, "1111", newSubjectAccount.code)
 
     const tokenAccountBuyerAfter = await getAccount(connection, studentAssociatedTokenAccount);
     const balanceAfterGiving = Number(tokenAccountBuyerAfter.amount);
 
-    console.log(balanceAfterGiving)
-    console.log(balanceBeforeGiving)
     expect(new anchor.BN(balanceAfterGiving).eq(new anchor.BN(balanceBeforeGiving + 10))).to.be.true;
 
   });
