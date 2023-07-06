@@ -19,7 +19,7 @@ const EXTRA_VOTES_EXPECTED: u32 = 20;
 /// CHECK: Modified to 20 to test the use cases --> real value = 2500;
 const MAXIMUM_PARTICIPATION: u32 = 20;
 
-const TOKENS_RECEIVED_AS_REWARD: u8 = 10;
+const TOKENS_RECEIVED_AS_REWARD: u8 = 1;
 
 #[program]
 pub mod teaching_project_handler {
@@ -671,8 +671,7 @@ pub struct InitializeSystem <'info> {
 
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
-    // pub associated_token_program: Program<'info, AssociatedToken>,
-    // pub rent: Sysvar<'info, Rent>, 
+
 }
 
 
@@ -1753,13 +1752,13 @@ impl CodeIdSubjectRelation {
 #[derive(Default)]
 #[derive(AnchorSerialize,AnchorDeserialize,Copy,Clone, PartialEq)] 
 pub enum ProposalState {
-#[default]
-VotationInProgress,
-WaitingForTeacher,
-WaitingForHighRank,
-Rejected,
-Accepted,
-AcceptedAndTokensGranted
+    #[default]
+    VotationInProgress,
+    WaitingForTeacher,
+    WaitingForHighRank,
+    Rejected,
+    Accepted,
+    AcceptedAndTokensGranted
 }
 
 impl fmt::Display for ProposalState {
@@ -1794,17 +1793,17 @@ pub enum ProposalUserType {
 #[derive(Default)]
 #[derive(AnchorSerialize,AnchorDeserialize,Copy,Clone)]
 pub enum SubjectCourse {
-#[default]
-NotDefined,
-First,
-Second,
-Third,
-Fourth,
-Fifth,
-Sixth,
-Seventh,
-Eighth,
-Nineth
+    #[default]
+    NotDefined,
+    First,
+    Second,
+    Third,
+    Fourth,
+    Fifth,
+    Sixth,
+    Seventh,
+    Eighth,
+    Nineth
 }
 
 

@@ -106,50 +106,58 @@ const initializeStudent = async (program: Program<TeachingProjectHandler>, autho
     const high_rank_id_handler = await findPDAforIdGenerator(program.programId, "highRank")
     const codeIdRelation = await findPDAforCodeIdRelation(program.programId)
     const systemInitialization = await findPDAforSystemInitialization(program.programId)
-
+  
+    const mint = await findPDAforMint(program.programId)
+    const associatedTokenAccount = await getAssociatedTokenAddress(mint, authority.publicKey, false);
+  
     const result = await program.methods.createStudent("3333", subjects)
-        .accounts({
-            authority: authority.publicKey,
-            initializationSystemAccount: systemInitialization,
-            studentIdHandler: id_generator_pda,
-            highRankIdHandler: high_rank_id_handler,
-            studentAccount: pda,
-            codeIdSubjectRelation: codeIdRelation,
-            systemProgram: anchor.web3.SystemProgram.programId
-        })
-        .signers([authority])
-        .rpc();
-
+      .accounts({
+        authority: authority.publicKey,
+        initializationSystemAccount: systemInitialization,
+        studentIdHandler: id_generator_pda,
+        highRankIdHandler: high_rank_id_handler,
+        studentAccount: pda,
+        codeIdSubjectRelation: codeIdRelation,
+        mint: mint,
+        tokenAccount: associatedTokenAccount,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        rent: anchor.web3.SYSVAR_RENT_PUBKEY
+      })
+      .signers([authority])
+      .rpc();
+  
     return result;
-}
+  }
 
-const initializeSystem = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair): Promise<String> => {
+// const initializeSystem = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair): Promise<String> => {
 
-    const initialization_system_account = await findPDAforSystemInitialization(program.programId)
-    const degree_id_generator_pda = await findPDAforIdGenerator(program.programId, "degree")
-    const faculty_id_generator_pda = await findPDAforIdGenerator(program.programId, "faculty")
-    const specialty_id_generator_pda = await findPDAforIdGenerator(program.programId, "specialty")
-    const subject_id_generator_pda = await findPDAforIdGenerator(program.programId, "subject")
-    const code_id_relation_account = await findPDAforCodeIdRelation(program.programId)
-    const high_rank_account = await findPDAforHighRank(program.programId, authority.publicKey)
+//     const initialization_system_account = await findPDAforSystemInitialization(program.programId)
+//     const degree_id_generator_pda = await findPDAforIdGenerator(program.programId, "degree")
+//     const faculty_id_generator_pda = await findPDAforIdGenerator(program.programId, "faculty")
+//     const specialty_id_generator_pda = await findPDAforIdGenerator(program.programId, "specialty")
+//     const subject_id_generator_pda = await findPDAforIdGenerator(program.programId, "subject")
+//     const code_id_relation_account = await findPDAforCodeIdRelation(program.programId)
+//     const high_rank_account = await findPDAforHighRank(program.programId, authority.publicKey)
 
-    const result = await program.methods.initializateNewSystem()
-        .accounts({
-            authority: authority.publicKey,
-            initializationSystemAccount: initialization_system_account,
-            highRankAccount: high_rank_account,
-            codeIdSubjectRelation: code_id_relation_account,
-            degreeIdHandler: degree_id_generator_pda,
-            facultyIdHandler: faculty_id_generator_pda,
-            specialtyIdHandler: specialty_id_generator_pda,
-            subjectIdHandler: subject_id_generator_pda,
-            systemProgram: anchor.web3.SystemProgram.programId,
-        })
-        .signers([authority])
-        .rpc();
+//     const result = await program.methods.initializateNewSystem()
+//         .accounts({
+//             authority: authority.publicKey,
+//             initializationSystemAccount: initialization_system_account,
+//             highRankAccount: high_rank_account,
+//             codeIdSubjectRelation: code_id_relation_account,
+//             degreeIdHandler: degree_id_generator_pda,
+//             facultyIdHandler: faculty_id_generator_pda,
+//             specialtyIdHandler: specialty_id_generator_pda,
+//             subjectIdHandler: subject_id_generator_pda,
+//             systemProgram: anchor.web3.SystemProgram.programId,
+//         })
+//         .signers([authority])
+//         .rpc();
 
-    return result;
-}
+//     return result;
+// }
 
 const initializeFaculty = async (program: Program<TeachingProjectHandler>, authority: anchor.web3.Keypair, id: number, name: string): Promise<String> => {
 
@@ -665,50 +673,28 @@ async function initDummyData() {
     const program = anchor.workspace.TeachingProjectHandler as Program<TeachingProjectHandler>;
     const connection = anchor.getProvider().connection;
 
-    let highRankWallet: anchor.web3.Keypair;
-    let professorWallet: anchor.web3.Keypair;
-    let studentWallet: anchor.web3.Keypair;
-
     let alternativeWallet: anchor.web3.Keypair;
 
     console.log("Comenzando la ejecución...")
-
-    // highRankWallet = await createWallet(connection, 10); 
-    // professorWallet = await createWallet(connection, 40); 
-    // studentWallet = await createWallet(connection, 10); 
-  
-    // await initializeHighRank(program, highRankWallet)
-    // await initializeSystem(program, highRankWallet)
-
-    // await initializeFaculty(program,highRankWallet, 1, "Escuela de Ingeniería en Telecomunicaciones")
-    // await initializeDegree(program, highRankWallet, 1, "Grado en Ingeniería de Telecomunicaciones",1)
-    // await initializeSpecialty(program,highRankWallet,1,"Telemática", 1)
-    // await initializeSubject(program, highRankWallet,1,"Diseño de aplicaciones",1,1,{first: {}},43235, "QmPRKpTKznUt6sU8yjYBwWaECVBVBF8nMiL77W2hkhVsQs")
     
-    // await initializeProfessor(program, professorWallet, [43235])
-    // await initializeProposalByProfessor(program, professorWallet,1,"Añadir temario de iOS","Aplicar patrones de diseño a la programación en iOS",1,1,43235)
-    const proposal = await fetchProposalAccount(program, 8, 43235)
-    // console.log(proposal)
+    const id = 1
+    const vote = false
+    const code = 43235
+    
+    const proposal = await fetchProposalAccount(program, id,code)
 
-    // for (var i: number = 1; i < proposal.expectedVotes; i++) {
-    //     alternativeWallet = await createWallet(connection, 10);
-    //     await initializeStudent(program, alternativeWallet, [43235])
-    //     let vote_signature = await voteProposalByStudent(program, alternativeWallet, proposal.id, proposal.subjectId, proposal.associatedProfessorProposalId, true, 43235)
-    //     await connection.confirmTransaction(vote_signature.toString())
-    //     const proposal_inside = await fetchProposalAccount(program, 8, 43235)
-    //     console.log(proposal_inside)
 
-    // }
+    for (var i: number = 1; i < proposal.expectedVotes; i++) {
+        alternativeWallet = await createWallet(connection, 10);
+        await initializeStudent(program, alternativeWallet, [code])
+        let vote_signature = await voteProposalByStudent(program, alternativeWallet, proposal.id, proposal.subjectId, proposal.associatedProfessorProposalId, vote, code)
+        await connection.confirmTransaction(vote_signature.toString())
+        const proposal_inside = await fetchProposalAccount(program, id, code)
+        console.log(proposal_inside)
 
-    const creator_account_pda = await findPDAforProfessor(program.programId, proposal.creatorPublicKey)
-    const mint = await findPDAforMint(program.programId)
-    console.log(mint)
-    const studentAssociatedTokenAccount = await getAssociatedTokenAddress(mint, creator_account_pda, true);
+    }
 
-    const tokenAccountBuyerAfter = await getAccount(connection, studentAssociatedTokenAccount);
-
-    console.log(tokenAccountBuyerAfter)
-    console.log(tokenAccountBuyerAfter.amount)
+   
 
 }
 

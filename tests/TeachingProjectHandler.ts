@@ -1819,7 +1819,7 @@ describe("Testing the Teaching Project Handler Smart Contract...\n\n", () => {
     const tokenAccountBuyerAfter = await getAccount(connection, studentAssociatedTokenAccount);
     const balanceAfterGiving = Number(tokenAccountBuyerAfter.amount);
 
-    expect(new anchor.BN(balanceAfterGiving).eq(new anchor.BN(balanceBeforeGiving + 10))).to.be.true;
+    expect(new anchor.BN(balanceAfterGiving).eq(new anchor.BN(balanceBeforeGiving + 1))).to.be.true;
 
   });
 

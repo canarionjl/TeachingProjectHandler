@@ -5,6 +5,7 @@ skip-lint = false
 [programs.localnet]
 teaching_project_handler = "Hd3HLLMfbMJonaCvcQ8GugmTdKsGoHvce1JfAUU2gmiS"
 
+
 [registry]
 url = "https://api.apr.dev"
 
